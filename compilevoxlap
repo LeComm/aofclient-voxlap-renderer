@@ -1,0 +1,2 @@
+#!/bin/bash
+dmd *.d *.di ./derelict/libderelict.a voxlap5.a -gc -ofmain

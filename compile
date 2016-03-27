@@ -1,0 +1,3 @@
+#!/bin/bash
+gcc -c kplib.c voxlap5.c -I./include
+ar rcs voxlap5.a voxlap5.o kplib.o
