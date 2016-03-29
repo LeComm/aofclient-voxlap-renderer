@@ -10758,7 +10758,7 @@ VOXLAP_DLL_FUNC int Calculate_Fog(__REGISTER unsigned char *color, float *dist){
 
 __FORCE_INLINE__ int _Vox_DrawRect2D(int sx, int sy, unsigned int w, unsigned int h, 
 unsigned int color, __REGISTER float dist){
-			__REGISTER unsigned int *ptx, *pty, y, draw_pixel;
+			__REGISTER unsigned int x, *pty, y, draw_pixel;
 		__REGISTER float distdiff, *zbufptr;
 		if(sx>xres_voxlap || sy>yres_voxlap)
 			return -1;
@@ -10773,11 +10773,11 @@ unsigned int color, __REGISTER float dist){
 		for(y=sy;y<sy+h;++y){
 			pty=(unsigned int*)(ylookup[y]+sx+frameplace);
 			zbufptr=(float*)(((unsigned char*)pty)+zbufoff);
-			for(ptx=pty;ptx<pty+w;){
-				distdiff=dist-*zbufptr;
+			for(x=0; x<w; ++x){
+				distdiff=dist-zbufptr[x];
 				draw_pixel=distdiff<0.0;
-				*zbufptr+++=distdiff*draw_pixel;
-				*ptx+++=(color-*ptx)*draw_pixel;
+				zbufptr[x]+=distdiff*draw_pixel;
+				pty[x]+=(color-pty[x])*draw_pixel;
 			}
 		}
 		return 0;

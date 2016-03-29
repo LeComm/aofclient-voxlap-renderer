@@ -28,6 +28,6 @@ Compiling:
 ./compile
 
 Using:
-Put renderer.d, voxlap5.a and compilevoxlap into aof-client directory
+Put renderer.d, voxlap.di, voxlap5.a and compilevoxlap into aof-client directory
 ./compilevoxlap
 ./main (to start the game, don't forget to run the server first)
