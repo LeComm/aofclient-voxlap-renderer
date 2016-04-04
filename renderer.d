@@ -23,7 +23,7 @@ void Init_Renderer(){
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
 	Set_Fog(0x0000ffff, 128);
-	Vox_SetSideShades(64, 32, 16, 0, 64, 0);
+	Vox_SetSideShades(32, 16, 8, 4, 32, 64);
 }
 
 void Load_Map(ubyte[] map){
@@ -34,6 +34,10 @@ void SetCamera(float xrotation, float yrotation, float tilt, float xfov, float y
 	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
 	Vox_ConvertToEucl(xrotation, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
 	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, scrn_surface.w/2, scrn_surface.h/2, scrn_surface.w*45.0/xfov); //Or w*xfov/180.0
+}
+
+void Prepare_Render(){
+	
 }
 
 void Render_Voxels(){
@@ -74,20 +78,6 @@ uint Voxel_GetColor(uint x, uint y, uint z){
 
 void Voxel_Remove(uint x, uint y, uint z){
 	setcube(x, z, y, -1);
-}
-
-//Temporarily only renders one model per player
-void Render_Player(uint player_id){
-	if(Players[player_id].Model<0 || player_id==LocalPlayerID)
-		return;
-	KV6Sprite_t spr;
-	//spr.rhe=asin(Players[player_id].dir.y*180.0/PI); spr.rst=acos(Players[player_id].dir.x*180.0/PI); spr.rti=0.0;
-	Vector3_t rot=Players[player_id].dir.DirectionAsRotation;
-	spr.rhe=rot.y; spr.rst=rot.x; spr.rti=rot.z;
-	spr.xpos=Players[player_id].pos.x; spr.ypos=Players[player_id].pos.z; spr.zpos=Players[player_id].pos.y;
-	spr.xdensity=.3; spr.ydensity=.3; spr.zdensity=-.3;
-	spr.model=Mod_Models[Players[player_id].Model];
-	Render_Sprite(&spr);
 }
 
 
@@ -190,8 +180,10 @@ void Render_Sprite(KV6Sprite_t *spr){
 	uint x, y;
 	KV6Voxel_t *sblk, blk, eblk;
 	{
-		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.y, zdiff=spr.zpos-RenderCameraPos.z;
+		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.z, zdiff=spr.zpos-RenderCameraPos.y;
 		float l=sqrt(xdiff*xdiff+ydiff*ydiff+zdiff*zdiff);
+		if(l>VoxlapInterface.maxscandist)
+			return;
 	}
 	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
@@ -218,7 +210,7 @@ void Render_Sprite(KV6Sprite_t *spr){
 				fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
 				
 				int screenx, screeny;
-				float renddist=Vox_Project2D(fnx, fny, fnz, &screenx, &screeny);
+				float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
 				if(renddist<0.0)
 					continue;
 				if(screenx<0 || screeny<0)
