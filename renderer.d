@@ -58,13 +58,13 @@ void Set_Fog(uint fogcolor, uint fogrange){
 	VoxlapInterface.maxscandist=fogrange;
 }
 
-//Actually this doesn't belong here, but a renderer can bring its own map memory format
+//Actually these don't belong here, but a renderer can bring its own map memory format
 bool Voxel_IsSolid(uint x, uint y, uint z){
 	return cast(bool)isvoxelsolid(x, z, y);
 }
 
 void Voxel_SetColor(uint x, uint y, uint z, uint col){
-	setcube(x, y, z, col|0x80000000);
+	setcube(x, z, y, (col&0x00ffffff)|0x80000000);
 }
 
 uint Voxel_GetColor(uint x, uint y, uint z){
@@ -176,6 +176,14 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
+int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
+	int[2] scrpos;
+	float dst=Vox_Project2D(xpos, zpos, ypos, &scrpos[0], &scrpos[1]);
+	if(dist)
+		*dist=dst;
+	return scrpos;
+}
+
 void Render_Sprite(KV6Sprite_t *spr){
 	uint x, y;
 	KV6Voxel_t *sblk, blk, eblk;
@@ -208,7 +216,9 @@ void Render_Sprite(KV6Sprite_t *spr){
 				rot_x=fnx; rot_y=fny;
 				fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
 				fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-				
+				/*if(x==spr.model.xsize/2 && y==spr.model.ysize/2 && blk==sblk && spr.xdensity==.2f){
+					writeflnlog("%s", (Vector3_t(fnx, fny, fnz)-Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y)).length);
+				}*/
 				int screenx, screeny;
 				float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
 				if(renddist<0.0)
