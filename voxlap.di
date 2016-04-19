@@ -17,6 +17,7 @@ extern(C) void Vox_SetSideShades(ubyte low_x, ubyte low_y, ubyte high_x, ubyte h
 
 
 extern(C) int isvoxelsolid(int, int, int);
+extern(C) int getfloorz(int, int, int);
 extern(C) int getcube(int, int, int);
 extern(C) void setcube(int, int, int, int);
 

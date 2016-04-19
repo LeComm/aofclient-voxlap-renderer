@@ -58,13 +58,22 @@ void Set_Fog(uint fogcolor, uint fogrange){
 	VoxlapInterface.maxscandist=fogrange;
 }
 
+uint Voxel_FindFloorZ(uint x, uint y, uint z){
+	return getfloorz(x, z, y);
+	/*for(y=0; y<MapYSize; y++){
+		if(Voxel_IsSolid(x, y, z)){
+			return y;
+		}
+	}*/
+}
+
 //Actually these don't belong here, but a renderer can bring its own map memory format
 bool Voxel_IsSolid(uint x, uint y, uint z){
 	return cast(bool)isvoxelsolid(x, z, y);
 }
 
 void Voxel_SetColor(uint x, uint y, uint z, uint col){
-	setcube(x, z, y, (col&0x00ffffff)|0x80000000);
+	setcube(x, z, y, (col&0x00ffffff)|0xfe000000);
 }
 
 uint Voxel_GetColor(uint x, uint y, uint z){
@@ -101,6 +110,7 @@ extern(C) struct KV6Sprite_t{
 	float rhe, rti, rst;
 	float xpos, ypos, zpos;
 	float xdensity, ydensity, zdensity;
+	uint color_mod;
 	KV6Model_t *model;
 }
 
@@ -184,7 +194,27 @@ int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
 	return scrpos;
 }
 
+bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, out int scry){
+	float dst=Vox_Project2D(xpos, zpos, ypos, &scrx, &scry);
+	if(dist)
+		*dist=dst;
+	return xpos>=0 && ypos>=0;
+}
+
+alias Render_Rectangle=Vox_DrawRect2D;
+
+/*void Render_Rectangle(int x, int y, int w, int h, uint col, float zdist){
+	Vox_DrawRect2D(x, y, w, h, col, zdist);
+}*/
+
 void Render_Sprite(KV6Sprite_t *spr){
+	if(spr.color_mod)
+		_Render_Sprite!(true)(spr);
+	else
+		_Render_Sprite!(false)(spr);
+}
+
+void _Render_Sprite(alias Enable_Color_Mod)(KV6Sprite_t *spr){
 	uint x, y;
 	KV6Voxel_t *sblk, blk, eblk;
 	{
@@ -195,6 +225,13 @@ void Render_Sprite(KV6Sprite_t *spr){
 	}
 	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
+	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
+	static if(Enable_Color_Mod){
+		color_mod_alpha=(spr.color_mod>>24)&255;
+		color_mod_r=(spr.color_mod>>16)&255;
+		color_mod_g=(spr.color_mod>>8)&255;
+		color_mod_b=(spr.color_mod>>0)&255;
+	}
 	rot_sx=sin(spr.rhe*PI/180.0); rot_cx=cos(spr.rhe*PI/180.0);
 	rot_sy=sin(spr.rti*PI/180.0); rot_cy=cos(spr.rti*PI/180.0);
 	rot_sz=sin(spr.rst*PI/180.0); rot_cz=cos(spr.rst*PI/180.0);
@@ -228,7 +265,21 @@ void Render_Sprite(KV6Sprite_t *spr){
 				const float s=350.0;
 				uint w=cast(uint)(s*sprdensity/renddist)+1, h=cast(uint)(s*sprdensity/renddist)+1;
 				screenx-=w>>1; screeny-=h>>1;
-				Vox_DrawRect2D(screenx, screeny, w, h, blk.color, renddist);
+				static if(Enable_Color_Mod){
+					uint color_alpha, color_r, color_g, color_b;
+					color_alpha=255-color_mod_alpha;
+					color_r=(blk.color>>16)&255; 
+					color_g=(blk.color>>8)&255; 
+					color_b=(blk.color>>0)&255;
+					uint newcolor;
+					color_r=(color_r*color_alpha+color_mod_r*color_mod_alpha)>>8;
+					color_g=(color_g*color_alpha+color_mod_g*color_mod_alpha)>>8;
+					color_b=(color_b*color_alpha+color_mod_b*color_mod_alpha)>>8;
+					Vox_DrawRect2D(screenx, screeny, w, h, (color_r<<16) | (color_g<<8) | (color_b), renddist);
+				}
+				else{
+					Vox_DrawRect2D(screenx, screeny, w, h, blk.color, renddist);
+				}
 			}
 		}
 	}
