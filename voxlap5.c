@@ -68,6 +68,8 @@ LeCom's STUFF THAT IS NOT IN THE ORIGINAL VOXLAP											*/
 I also won't add several versions of gline since I would have to update all versions after a change etc.*/
 #define __DRAW_FOG__ 1
 
+#define __RGBA_OVERFLOW_CHECKS__ 1
+
 /*This sets how big one kv6 voxel is on the screen*/
 /*Better don't change this*/
 #define __PIXELS_PER_KVVXL__ 8
@@ -112,11 +114,28 @@ float invpwr_maxscandist;
 
 /*Benchmarking showed that this is faster than using precomputed char * col pointers instead of indexing
 and faster than SIMD with x86 instructions*/
+#if (__RGBA_OVERFLOW_CHECKS__!=0)
+#define __GLINE_PROCESS_COLOR__(col, d_int) \
+	d_int*=fog_alpha; \
+	{ \
+		unsigned int gpcr=((unsigned char*)&col)[0], gpcg=((unsigned char*)&col)[1], gpcb=((unsigned char*)&col)[2]; \
+		gpcr=(gpcr*d_int+rfog)>>16; \
+		gpcg=(gpcg*d_int+gfog)>>16; \
+		gpcb=(gpcb*d_int+bfog)>>16; \
+		if(gpcr>255)gpcr=255; \
+		if(gpcg>255)gpcg=255; \
+		if(gpcb>255)gpcb=255; \
+		((unsigned char*)&col)[0]=gpcr; \
+		((unsigned char*)&col)[1]=gpcg; \
+		((unsigned char*)&col)[2]=gpcb; \
+	}
+#else
 #define __GLINE_PROCESS_COLOR__(col, d_int) \
 	d_int*=fog_alpha; \
 	((unsigned char*)&col)[0]=((((unsigned char*)&col)[0]*d_int)+rfog)>>16; \
 	((unsigned char*)&col)[1]=((((unsigned char*)&col)[1]*d_int)+gfog)>>16; \
 	((unsigned char*)&col)[2]=((((unsigned char*)&col)[2]*d_int)+bfog)>>16;
+#endif
 
 /*____________________________________________________________________________
 																			*/
@@ -10700,7 +10719,8 @@ float Vox_Project2D (float x, float y, float z, long *screenx, long *screeny){
 
 	ftol(x/dist+gihx-.5f,screenx); if(*screenx>=xres_voxlap) return -1.f;
 	ftol(y/dist+gihy-.5f,screeny); if(*screeny>=yres_voxlap) return -1.f;
-	return sqrt(dx*dx+dy*dy+dz*dz);
+	return dist;
+	//return sqrt(dx*dx+dy*dy+dz*dz);
 	
 }
 
@@ -10752,6 +10772,19 @@ __FORCE_INLINE__ int  _Calculate_Fog(__REGISTER unsigned char *color, float *dis
 	return;
 }
 
+VOXLAP_DLL_FUNC void Vox_Calculate_2DFog(unsigned char *color, float xdist, float ydist){
+	__REGISTER float xydist=xdist*xdist+ydist*ydist;
+	__REGISTER unsigned int fog_alpha=xydist*invpwr_maxscandist;
+	fog_alpha-=(fog_alpha-255)*(fog_alpha>255);
+	fog_alpha=255-fog_alpha;
+	__REGISTER unsigned char *fogptr=(unsigned char*)&vx5.fogcol;
+	color[0]=((unsigned int)fogptr[0])+(((((unsigned int)color[0])-fogptr[0])*fog_alpha)>>8);
+	color[1]=((unsigned int)fogptr[1])+(((((unsigned int)color[1])-fogptr[1])*fog_alpha)>>8);
+	color[2]=((unsigned int)fogptr[2])+(((((unsigned int)color[2])-fogptr[2])*fog_alpha)>>8);
+	color[3]=((unsigned int)fogptr[3])+(((((unsigned int)color[3])-fogptr[3])*fog_alpha)>>8);
+	return;
+}
+
 VOXLAP_DLL_FUNC int Calculate_Fog(__REGISTER unsigned char *color, float *dist){
 	return _Calculate_Fog(color, dist);
 }
@@ -10783,9 +10816,14 @@ unsigned int color, __REGISTER float dist){
 		return 0;
 }
 
-VOXLAP_DLL_FUNC int Vox_DrawRect2D(int sx, int sy, unsigned int w, unsigned int h, 
+VOXLAP_DLL_FUNC int Vox_FogDrawRect2D(int sx, int sy, unsigned int w, unsigned int h, 
 unsigned int color, float dist){
 	_Calculate_Fog((unsigned char*)&color, &dist);
+	return _Vox_DrawRect2D(sx, sy, w, h, color, dist);
+}
+
+VOXLAP_DLL_FUNC int Vox_DrawRect2D(int sx, int sy, unsigned int w, unsigned int h, 
+unsigned int color, float dist){
 	return _Vox_DrawRect2D(sx, sy, w, h, color, dist);
 }
 
