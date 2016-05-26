@@ -63,7 +63,11 @@ void UnInit_Renderer(){
 }
 
 void Set_Renderer_Fog(uint fogcolor, uint fogrange){
+<<<<<<< HEAD
 	VoxlapInterface.fogcol=fogcolor|0xff000000;
+=======
+	VoxlapInterface.fogcol=fogcolor;
+>>>>>>> c0647357897cb1e9b56b8b1e953651419abf5053
 	VoxlapInterface.maxscandist=fogrange;
 }
 
