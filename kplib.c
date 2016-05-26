@@ -1,4 +1,4 @@
-/**************************************************************************************************
+﻿/**************************************************************************************************
 KPLIB.C: Ken's Picture LIBrary written by Ken Silverman
 Copyright (c) 1998-2008 Ken Silverman
 Ken Silverman's official web site: http://advsys.net/ken
@@ -35,7 +35,7 @@ credits.
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <kplib.h>
+#include "include/kplib.h"
 
 enum /*kpgetdim() return values:*/
 {
@@ -89,6 +89,10 @@ static __inline int filelength (int h)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+
+int _fileno(FILE *__stream){
+	return -1;
+}
 
 #ifndef O_BINARY
 #define O_BINARY 0
@@ -177,10 +181,10 @@ jpg:                png:
    dcflagor      64
 */
 
-int kplib_palcol[256] ASMNAME("kplib_palcol"), kplib_paleng, kplib_bakcol, kplib_numhufblocks, kplib_zlibcompflags;
-signed char kplib_coltype, kplib_bitdepth;
-char *kplib_filterlist;
-int kplib_filterlistmal;
+int kplib_palcol[256] ASMNAME("kplib_palcol")={0}, kplib_paleng=0, kplib_bakcol=0, kplib_numhufblocks=0, kplib_zlibcompflags=0;
+signed char kplib_coltype=0, kplib_bitdepth=0;
+char *kplib_filterlist=NULL;
+int kplib_filterlistmal=0;
 
 /*============================ KPNGILIB begins ===============================
 

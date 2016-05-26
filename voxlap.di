@@ -13,13 +13,14 @@ extern(C) int Vox_vloadvxl(const char*, uint);
 extern(C) int Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
 extern(C) int loadvxl(const char*);
 
-extern(C) void Vox_SetSideShades(ubyte low_x, ubyte low_y, ubyte high_x, ubyte high_y, ubyte b, ubyte t);
+extern(C) void Vox_SetSideShades(ubyte, ubyte, ubyte, ubyte, ubyte, ubyte);
 
 
 extern(C) int isvoxelsolid(int, int, int);
 extern(C) int getfloorz(int, int, int);
 extern(C) int getcube(int, int, int);
 extern(C) void setcube(int, int, int, int);
+extern(C) void Vox_Calculate_2DFog(ubyte*, float, float);
 
 
 extern(C) float Vox_Project2D(float, float, float, int*, int*);

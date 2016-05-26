@@ -87,7 +87,7 @@ typedef union
 	float array[4];
 	#ifdef __GNUC__
 	float vec __attribute__ ((vector_size (16)));
-	float svec[2] __attribute__ ((vector_size (8)));
+	//float svec[2] __attribute__ ((vector_size (8)));
 	#endif
 	#ifdef _MSC_VER
 	__ALIGN(16) __m128 vec;
@@ -153,7 +153,7 @@ typedef struct vx5sprite
 	long okfatim;       /*make vx5sprite exactly 64 bytes :)*/
 } vx5sprite;
 
-enum{
+typedef enum{
 	VOXLAP_CPU_POS_NONE=0, VOXLAP_CPU_POS_OPTICAST=1, VOXLAP_CPU_POS_GLINE=2, VOXLAP_CPU_POS_HREND=3,
 	VOXLAP_CPU_POS_VREND=4, VOXLAP_CPU_POS_KV6REND=5 
 }Voxlap_CPU_Pos;
@@ -269,7 +269,7 @@ struct vx5_interface
 };
 
 #ifdef VOXLAP5
-VOXLAP_DLL_FUNC struct vx5_interface vx5;
+static VOXLAP_DLL_FUNC struct vx5_interface vx5;
 #else
 extern VOXLAP_DLL_FUNC struct  vx5_interface vx5;
 #endif

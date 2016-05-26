@@ -16,10 +16,10 @@ Edited by LeCom
 #include <stdlib.h> //was below system-specific includes before
 
 	//Ericson2314's dirty porting tricks
-#include "porthacks.h"
+#include "include/porthacks.h"
 
 	//Ken's short, general-purpose to-be-inlined functions mainly consisting of inline assembly are now here
-#include "ksnippits.h"
+#include "include/ksnippits.h"
 
 	//Basic System Specific Stuff
 #ifndef _WIN32 //Windows (hypothetically 6 64-bit too)
@@ -105,18 +105,44 @@ light is drawn on the few places that are bright*/
 /*I don't want to use the setsideshades values.
 Right now, CubeShadeRight, Front and Back are ignored and CubeShadeLeft is used
 for all these faces of the cube*/
-unsigned char HorizontalCubeShades[4];
-unsigned char CubeShadeBottom, CubeShadeTop;
+unsigned char HorizontalCubeShades[4]={0, 0, 0, 0};
+unsigned char CubeShadeBottom=0, CubeShadeTop=0;
 
-float invpwr_maxscandist;
+float invpwr_maxscandist=1.0;
+
+#define __COLOR_BOUND_CHECKS__ 1
 
 /*Benchmarking showed that this is faster than using precomputed char * col pointers instead of indexing
 and faster than SIMD with x86 instructions*/
+#if (__COLOR_BOUND_CHECKS__==0)
 #define __GLINE_PROCESS_COLOR__(col, d_int) \
 	d_int*=fog_alpha; \
 	((unsigned char*)&col)[0]=((((unsigned char*)&col)[0]*d_int)+rfog)>>16; \
 	((unsigned char*)&col)[1]=((((unsigned char*)&col)[1]*d_int)+gfog)>>16; \
-	((unsigned char*)&col)[2]=((((unsigned char*)&col)[2]*d_int)+bfog)>>16;
+	((unsigned char*)&col)[2]=((((unsigned char*)&col)[2]*d_int)+bfog)>>16; \
+	col|=0xff000000;
+#else
+		/*__gpcr-=(__gpcr-255)>>((__gpcr>255)<<4); \
+		__gpcg-=(__gpcg-255)>>((__gpcg>255)<<4); \
+		__gpcb-=(__gpcb-255)>>((__gpcb>255)<<4); \*/
+#define __GLINE_PROCESS_COLOR__(col, d_int) \
+	d_int*=fog_alpha; \
+	{ \
+		unsigned int __gpcr=(((unsigned char*)&col)[0]*d_int+rfog)>>16; \
+		unsigned int __gpcg=(((unsigned char*)&col)[1]*d_int+gfog)>>16; \
+		unsigned int __gpcb=(((unsigned char*)&col)[2]*d_int+bfog)>>16; \
+		if(__gpcr>255) \
+			__gpcr=255; \
+		if(__gpcg>255) \
+			__gpcg=255; \
+		if(__gpcb>255) \
+			__gpcb=255; \
+		((unsigned char*)&col)[0]=__gpcr; \
+		((unsigned char*)&col)[1]=__gpcg; \
+		((unsigned char*)&col)[2]=__gpcb; \
+		col|=0xff000000; \
+	}
+#endif
 
 /*____________________________________________________________________________
 																			*/
@@ -140,20 +166,19 @@ and faster than SIMD with x86 instructions*/
 
 	//SYSMAIN Preprocessor stuff
 //#define SYSMAIN_C //if sysmain is compiled as C
-#include "sysmain.h"
+#include "include/sysmain.h"
 
 	//Voxlap Preprocessor stuff
 #define VOXLAP5
 				//We never want to define C bindings if this is compiled as C++.
 #undef VOXLAP_C	//Putting this here just in case.
-#include "voxlap5.h"
+#include "include/voxlap5.h"
 
 	//mmxcolor* now defined here
-#include "voxflash.h"
 
 	//KPlib Preprocessor stuff
 //#define KPLIB_C  //if kplib is compiled as C
-#include <kplib.h>
+#include "include/kplib.h"
 
 #define USEZBUFFER 1                 //Should a Z-Buffer be Used?
 #define PREC (256*4096)
@@ -172,7 +197,7 @@ EXTERN_SYSMAIN void evilquit (const char *);
 #ifdef __cplusplus
 extern "C" {
 #endif
-char *sptr[(VSID*VSID*4)/3];
+char *sptr[(VSID*VSID*4)/3]={NULL};
 #ifdef __cplusplus
 }
 #endif
@@ -198,9 +223,9 @@ static long *vbuf = 0, *vbit = 0, vbiti;
 
 	//Memory management variables:
 #define MAXCSIZ 1028
-char tbuf[MAXCSIZ];
-long tbuf2[MAXZDIM*3];
-long templongbuf[MAXZDIM];
+char tbuf[MAXCSIZ]={0};
+long tbuf2[MAXZDIM*3]={0};
+long templongbuf[MAXZDIM]={0};
 
 static char nullst = 0; //nullst always NULL string
 
@@ -226,14 +251,14 @@ typedef struct { castdat *i0, *i1; long z0, z1, cx0, cy0, cx1, cy1; } cftype;
 #define EXTERN_C
 
 #if (defined(USEV5ASM) && (USEV5ASM != 0)) //if true
-	EXTERN_C cftype cfasm[256];
+	EXTERN_C cftype cfasm[256]={0};
 	EXTERN_C castdat skycast;
 #else
-	cftype cfasm[256];
+	cftype cfasm[256]={0};
 #endif
 	//Screen related variables:
 static long xres_voxlap, yres_voxlap, bytesperline, frameplace, xres4_voxlap;
-long ylookup[MAXYDIM+1];
+long ylookup[MAXYDIM+1]={0};
 
 static lpoint3d glipos;
 static point3d gipos, gistr, gihei, gifor;
@@ -242,14 +267,14 @@ static float gihx, gihy, gihz, gposxfrac[2], gposyfrac[2], grd;
 static long gposz, giforzsgn, gstartz0, gstartz1, gixyi[2];
 static char *gstartv;
 
-long backtag, backedup = -1, bacx0, bacy0, bacx1, bacy1;
-char *bacsptr[262144];
+long backtag=0, backedup = -1, bacx0=0, bacy0=0, bacx1=0, bacy1=0;
+char *bacsptr[262144]={NULL};
 
 	//Flash variables
 #define LOGFLASHVANG 9
 static lpoint2d gfc[(1<<LOGFLASHVANG)*8];
 static long gfclookup[8] = {4,7,2,5,0,3,6,1}, flashcnt = 0;
-int64_t flashbrival;
+int64_t flashbrival=0;
 
 	//Norm flash variables
 #define GSIZ 512  //NOTE: GSIZ should be 1<<x, and must be <= 65536
@@ -267,11 +292,11 @@ static long xbsceil[32], xbsflor[32]; //disabling mangling for inline asm
 #define LOGHASHEAD 12
 #define FSTKSIZ 8192
 typedef struct { long v, b; } vlstyp;
-vlstyp vlst[VLSTSIZ];
-long hhead[1<<LOGHASHEAD], vlstcnt = 0x7fffffff;
-lpoint3d fstk[FSTKSIZ]; //Note .z is actually used as a pointer, not z!
+static vlstyp vlst[VLSTSIZ];
+static long hhead[1<<LOGHASHEAD], vlstcnt = 0x7fffffff;
+static lpoint3d fstk[FSTKSIZ]; //Note .z is actually used as a pointer, not z!
 #define FLCHKSIZ 4096
-lpoint3d flchk[FLCHKSIZ]; long flchkcnt = 0;
+static lpoint3d flchk[FLCHKSIZ]; long flchkcnt = 0;
 
 	//Opticast global variables:
 	//radar: 320x200 requires  419560*2 bytes (area * 6.56*2)
@@ -287,7 +312,7 @@ static castdat *angstart[MAXXDIM*4], *gscanptr;
 static float cmprecip[CMPRECIPSIZ], wx0, wy0, wx1, wy1;
 static long iwx0, iwy0, iwx1, iwy1;
 static point3d gcorn[4];
-		 point3d ginor[4]; //Should be static, but... necessary for stupid pingball hack :/
+		 point3d ginor[4]={0}; //Should be static, but... necessary for stupid pingball hack :/
 static long lastx[MAX(MAXYDIM,VSID)], uurendmem[MAXXDIM*2+8];
 static unsigned long *uurend;
 
@@ -305,15 +330,15 @@ extern "C" {
 #endif
 
 	//Parallaxing sky variables (accessed by assembly code)
-long skyoff = 0, skyxsiz, *skylat = 0;
+long skyoff = 0, skyxsiz=0, *skylat = 0;
 
-int64_t gi, gcsub[8] =
+int64_t gi=0, gcsub[8] =
 {
 	0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff,
 	0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff
 };
-long gylookup[512+36], gmipnum = 0; //256+4+128+4+64+4+...
-long gpz[2], gdz[2], gxmip, gxmax, gixy[2], gpixy;
+long gylookup[512+36]={0}, gmipnum = 0; //256+4+128+4+64+4+...
+static long gpz[2], gdz[2], gxmip, gxmax, gixy[2], gpixy;
 static long gmaxscandist;
 
 //long reax, rebx, recx, redx, resi, redi, rebp, resp, remm[16];
@@ -323,10 +348,55 @@ EXTERN_C void dep_protect_start();
 EXTERN_C void dep_protect_end();
 #endif
 
+
+/*long long __divdi3( long long x, long long y) 
+{
+   return x/y; 
+} */
+
+uint64_t __udivmoddi4(uint64_t num, uint64_t den, uint64_t *rem_p){
+	uint64_t quot = 0, qbit = 1;
+	if(den==0){
+		return 1/((unsigned)den);
+	}
+	while((int64_t)den>=0){
+		den<<=1;
+		qbit<<=1;
+	}
+	while(qbit){
+		if(den<=num){
+			num-=den;
+			quot+=qbit;
+		}
+		den>>=1;
+		qbit>>=1;
+	}
+	if(rem_p)
+		*rem_p=num;
+	return quot;
+}
+
+int64_t __divdi3(int64_t num, int64_t den){
+	int minus=0;
+	int64_t v;
+	if(num<0){
+		num=-num;
+		minus=1;
+	}
+	if(den<0){
+		den=-den;
+		minus^=1;
+	}
+	v=__udivmoddi4(num, den, NULL);
+	if(minus)
+		v=-v;
+	return v;
+}
+
 void grouscanasm (long);
 /*#if (USEZBUFFER == 1)*/
 #if 1
-long zbufoff;
+long zbufoff=0;
 #endif
 #ifdef __cplusplus
 }
@@ -354,6 +424,14 @@ static inline long lbound (long a, long b, long c) //c MUST be >= b
 	c -= b;
 	if ((unsigned long)(a-b) <= c) return(a);
 	return((((b-a)>>31)&c) + b);
+}
+
+static inline void mmxcoloradd (long *a)
+{
+	((uint8_t *)a)[0] += ((uint8_t *)((unsigned int)flashbrival))[0];
+	((uint8_t *)a)[1] += ((uint8_t *)((unsigned int)flashbrival))[1];
+	((uint8_t *)a)[2] += ((uint8_t *)((unsigned int)flashbrival))[2];
+	((uint8_t *)a)[3] += ((uint8_t *)((unsigned int)flashbrival))[3];
 }
 
 #define LSINSIZ 8 //Must be >= 2!
@@ -521,6 +599,8 @@ static const uint64_t font6x8[] = //256 DOS chars, from: DOSAPP.FON (tab blank)
 	0x2A08080000003F40,0x0012241224000808,0x0000000609090600,0x0008000000001818,
 	0x02023E4030000000,0x0900000E010E0100,0x3C3C3C0000000A0D,0x000000000000003C,
 };
+
+
 
 /**
  * Draws 6x8 font on screen (very fast!)
@@ -2072,8 +2152,8 @@ static float optistrx, optistry, optiheix, optiheiy, optiaddx, optiaddy;
 static int64_t foglut[2048], fogcol;
 static long ofogdist = -1;
 
-void (*hrend)(long,long,long,long,long,long);
-void (*vrend)(long,long,long,long,long);
+void (*hrend)(long,long,long,long,long,long)=NULL;
+void (*vrend)(long,long,long,long,long)=NULL;
 
 
 #if (USEZBUFFER != 1) //functions without Z Buffer
@@ -2139,7 +2219,7 @@ void fast_hrendz(long sx, long sy, long p1, __REGISTER long plc, __REGISTER long
 	}while(p0<(unsigned long*)p1);
 }
 
-/*hrend*** is eating most performance, follwed by gline and dmultrethigh*/
+/*hrend*** is eating most performance, followed by gline and dmultrethigh*/
 void hrendz (long sx, long sy, long p1, long plc, long incr, long j)
 {
 	__REGISTER castdat *ang_ptr, *ang_arr;
@@ -2180,10 +2260,6 @@ void vrendz (long sx, long sy, long p1, long iplc, long iinc)
 {
 	long i, p0;
 	__REGISTER castdat *ang_ptr, *ang_arr;
-#if (__PER_VOXEL_SHADING__!=0)
-	__REGISTER unsigned char *cp;
-	__REGISTER unsigned int rreg, greg, breg, lreg;
-#endif
 	p0 = ylookup[sy]+(sx<<2)+frameplace;
 	p1 = ylookup[sy]+(p1<<2)+frameplace;
 	i = zbufoff;	
@@ -2196,16 +2272,7 @@ void vrendz (long sx, long sy, long p1, long iplc, long iinc)
 		ang_ptr=&ang_arr[iplc];
 		if(uurend[sx]<0 || uurend[sx]>Upper_Limit || ang_arr==NULL)
 			break;
-#if (__PER_VOXEL_SHADING__!=0 && 0)
-		dstp=(unsigned char*)p0++;
-		srcp=(unsigned char*)&ang_ptr->col;
-		lreg=ang_ptr->darkness;
-		dstp[0]=(srcp[0]*lreg)>>8;
-		dstp[1]=(srcp[1]*lreg)>>8;
-		dstp[2]=(srcp[2]*lreg)>>8;
-#else
 		*(long *)p0 = ang_ptr->col;
-#endif
 		*(float *)(p0+i) = (float)ang_ptr->dist;
 		uurend[sx] += uurend[sx+MAXXDIM]; p0 += 4; iplc += iinc; ++sx;
 	}
@@ -2388,7 +2455,6 @@ void opticast ()
 	for(i=0;i<256+4;i++) gylookup[i] = (i*PREC-gposz);
 #endif*/
 	gmaxscandist = MIN(MAX(vx5.maxscandist,1),1023)*PREC;
-
 // Selecting functions
 #if (USEZBUFFER != 1)
 	hrend = hrendnoz; vrend = vrendnoz;
@@ -3568,7 +3634,11 @@ VOXLAP_DLL_FUNC void loadnul (dpoint3d *ipo, dpoint3d *ist, dpoint3d *ihe, dpoin
 			v += 4;
 		}
 
-	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
+
+
+/*	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);*/
+	
+	
 	vbiti = (((long)v-(long)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
@@ -3869,7 +3939,7 @@ void loadbsp (const char *filnam, dpoint3d *ipo, dpoint3d *ist, dpoint3d *ihe, d
 			(*(long *)v) = ((x^y)&15)*0x10101+0x807c7c7c; v += 4;
 		}
 
-	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
+/*	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);*/
 	vbiti = (((long)v-(long)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
@@ -3982,7 +4052,8 @@ long loadvxl (const char *lodfilnam)
 		while (*v) {v += (*v)<<2;}
 		v += ((((long)v[2])-((long)v[1])+2)<<2);
 	}
-	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
+	unsigned int size=VSID*VSID;
+	memset(&sptr[size],0,sizeof(sptr)-size*4);
 	vbiti = (((long)v-(long)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
@@ -3992,7 +4063,7 @@ long loadvxl (const char *lodfilnam)
 	backedup = -1;
 
 	gmipnum = 1; vx5.flstnum = 0;
-	updatebbox(0,0,0,VSID,VSID,MAXZDIM,0);
+/*	updatebbox(0,0,0,VSID,VSID,MAXZDIM,0);*/
 	return(1);
 }
 
@@ -4014,7 +4085,9 @@ long Vox_vloadvxl (const char *data, unsigned int size)
 		while (*v) {v += (*v)<<2;}
 		v += ((((long)v[2])-((long)v[1])+2)<<2);
 	}
-	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
+	//I had to do this cause else GCC would throw "unrecognized insn" errors at me
+	unsigned int _size=VSID*VSID;
+	memset(&sptr[_size],0,sizeof(sptr)-_size*4);
 	vbiti = (((long)v-(long)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
@@ -5680,10 +5753,10 @@ long triscan (point3d *p0, point3d *p1, point3d *p2, point3d *hit, lpoint3d *lhi
 // ------------------------ CONVEX 3D HULL CODE BEGINS ------------------------
 
 #define MAXPOINTS (256 *2) //Leave the *2 here for safety!
-point3d nm[MAXPOINTS*2+2];
-float nmc[MAXPOINTS*2+2];
-long tri[MAXPOINTS*8+8], lnk[MAXPOINTS*8+8], tricnt;
-char umost[VSID*VSID], dmost[VSID*VSID];
+static point3d nm[MAXPOINTS*2+2];
+static float nmc[MAXPOINTS*2+2];
+static long tri[MAXPOINTS*8+8], lnk[MAXPOINTS*8+8], tricnt;
+static char umost[VSID*VSID], dmost[VSID*VSID];
 
 void initetrasid (point3d *pt, long z)
 {
@@ -7828,8 +7901,8 @@ static long inkhash (const char *filnam, long *retind)
 //-------------------------- KV6 sprite code begins --------------------------
 
 //EQUIVEC code begins -----------------------------------------------------
-point3d univec[256];
-__ALIGN(8) short iunivec[256][4];
+static point3d univec[256];
+static __ALIGN(8) short iunivec[256][4];
 
 typedef struct
 {
@@ -10201,7 +10274,6 @@ VOXLAP_DLL_FUNC void voxsetframebuffer (long p, long b, long x, long y)
 	qsum1[3] = qsum1[1] = 0x7fff-y; qsum1[2] = qsum1[0] = 0x7fff-x;
 	kv6bytesperline = qbplbpp[1] = b; qbplbpp[0] = 4;
 	kv6frameplace = p - (qsum1[0]*qbplbpp[0] + qsum1[1]*qbplbpp[1]);
-
 	if ((b != ylookup[1]) || (x != xres_voxlap) || (y != yres_voxlap))
 	{
 		bytesperline = b; xres_voxlap = x; yres_voxlap = y; xres4_voxlap = (xres_voxlap<<2);
@@ -10220,6 +10292,7 @@ VOXLAP_DLL_FUNC void voxsetframebuffer (long p, long b, long x, long y)
 		//zbuffer aligns its memory to the same pixel boundaries as the screen!
 		//WARNING: Pentium 4's L2 cache has severe slowdowns when 65536-64 <= (zbufoff&65535) < 64
 	zbufoff = (((((long)zbuffermem)-frameplace-128)+255)&~255)+128;
+	vx5.zbufoff=zbufoff;
 #endif
 	uurend = &uurendmem[((frameplace&4)^(((long)uurendmem)&4))>>2];
 
@@ -10251,11 +10324,11 @@ VOXLAP_DLL_FUNC void voxsetframebuffer (long p, long b, long x, long y)
 }
 
 //------------------------ Simple PNG OUT code begins ------------------------
-FILE *pngofil;
-long pngoxplc, pngoyplc, pngoxsiz, pngoysiz;
-unsigned long pngocrc, pngoadcrc;
+FILE *pngofil=NULL;
+long pngoxplc=0, pngoyplc=0, pngoxsiz=0, pngoysiz=0;
+unsigned long pngocrc=0, pngoadcrc=0;
 
-long crctab32[256];  //SEE CRC32.C
+static long crctab32[256];  //SEE CRC32.C
 #define updatecrc32(c,crc) crc=(crctab32[(crc^c)&255]^(((unsigned)crc)>>8))
 #define updateadl32(c,crc) \
 {  c += (crc&0xffff); if (c   >= 65521) c   -= 65521; \
@@ -10693,16 +10766,19 @@ If the return value < 0, it's invisible, else it's the distance*/
 float Vox_Project2D (float x, float y, float z, long *screenx, long *screeny){
 	float dx, dy, dz, dist;
 	dx=x-gipos.x; dy=y-gipos.y; dz=z-gipos.z;
-	dist=dx*gifor.x+dy*gifor.y+dz*gifor.z; if(dist<SCISDIST) return -1.f;
+	dist=dx*gifor.x+dy*gifor.y+dz*gifor.z; if(dist<.000001) return -1.f;
 
 	x=(dx*gistr.x+dy*gistr.y+dz*gistr.z)*gihz;
 	y=(dx*gihei.x+dy*gihei.y+dz*gihei.z)*gihz;
 
-	ftol(x/dist+gihx-.5f,screenx); if(*screenx>=xres_voxlap) return -1.f;
-	ftol(y/dist+gihy-.5f,screeny); if(*screeny>=yres_voxlap) return -1.f;
-	return sqrt(dx*dx+dy*dy+dz*dz);
+	ftol(x/dist+gihx-.5f,screenx);// if(*screenx>=xres_voxlap) return -1.f;
+	ftol(y/dist+gihy-.5f,screeny);// if(*screeny>=yres_voxlap) return -1.f;
+	return dist;
 	
 }
+
+#define Vox_CalcLen(x, y, z) sqrt((x)*(x)+(y)*(y)+(z)*(z))
+
 
 Vox_VX5Sprite *Vox_InitSprite(Vox_VX5Sprite *sprite){
 	sprite->x=0; sprite->y=0; sprite->z=0; sprite->rst=0; sprite->rhe=0;
@@ -10743,16 +10819,31 @@ __FORCE_INLINE__ float _Vox_KV6Project2D(float x, float y, float z, long *screen
 	return Vox_CalcLen(dx, dy, dz);
 }
 
-__FORCE_INLINE__ int  _Calculate_Fog(__REGISTER unsigned char *color, float *dist){
+__FORCE_INLINE__ void  _Calculate_Fog(__REGISTER unsigned char *color, float *dist){
 	__REGISTER unsigned int fog_alpha=255-*dist**dist*invpwr_maxscandist;
 	__REGISTER unsigned char *fogptr=(unsigned char*)&vx5.fogcol;
 	color[0]=((unsigned int)fogptr[0])+(((((unsigned int)color[0])-fogptr[0])*fog_alpha)>>8);
 	color[1]=((unsigned int)fogptr[1])+(((((unsigned int)color[1])-fogptr[1])*fog_alpha)>>8);
 	color[2]=((unsigned int)fogptr[2])+(((((unsigned int)color[2])-fogptr[2])*fog_alpha)>>8);
+	color[3]=255;
 	return;
 }
 
-VOXLAP_DLL_FUNC int Calculate_Fog(__REGISTER unsigned char *color, float *dist){
+VOXLAP_DLL_FUNC void Vox_Calculate_2DFog(unsigned char *color, float xdist, float ydist){
+	__REGISTER float xydist=xdist*xdist+ydist*ydist;
+	__REGISTER unsigned int fog_alpha=xydist*invpwr_maxscandist;
+	fog_alpha-=(fog_alpha-255)*(fog_alpha>255);
+	fog_alpha=255-fog_alpha;
+	__REGISTER unsigned char *fogptr=(unsigned char*)&vx5.fogcol;
+	color[0]=((unsigned int)fogptr[0])+(((((unsigned int)color[0])-fogptr[0])*fog_alpha)>>8);
+	color[1]=((unsigned int)fogptr[1])+(((((unsigned int)color[1])-fogptr[1])*fog_alpha)>>8);
+	color[2]=((unsigned int)fogptr[2])+(((((unsigned int)color[2])-fogptr[2])*fog_alpha)>>8);
+	//color[3]=((unsigned int)fogptr[3])+(((((unsigned int)color[3])-fogptr[3])*fog_alpha)>>8);
+	color[3]=255;
+	return;
+}
+
+VOXLAP_DLL_FUNC void Calculate_Fog(__REGISTER unsigned char *color, float *dist){
 	return _Calculate_Fog(color, dist);
 }
 
