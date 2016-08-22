@@ -2,6 +2,7 @@
 
 import derelict.sdl2.sdl;
 import core.stdc.stdio : cstdio_fread=fread;
+import std.algorithm;
 import std.stdio;
 import std.math;
 import voxlap;
@@ -9,9 +10,7 @@ import protocol;
 import gfx;
 import world;
 import misc;
-import vector; 
-
-SDL_Surface *scrn_surface;
+import vector;
 
 dpoint3d RenderCameraPos;
 dpoint3d Cam_ist, Cam_ihe, Cam_ifo;
@@ -29,7 +28,7 @@ void Init_Renderer(){
 }
 
 void Load_Map(ubyte[] map){
-	Vox_vloadvxl(cast(const char*)map.ptr, map.length);
+	Vox_vloadvxl(cast(const char*)map.ptr, cast(uint)map.length);
 }
 
 float XFOV_Ratio=1.0, YFOV_Ratio=1.0;
@@ -55,7 +54,7 @@ void Render_Voxels(){
 }
 
 void Render_FinishRendering(){
-	SDL_UpdateTexture(scrn_texture, null, scrn_surface.pixels, scrn_surface.pitch);
+	SDL_UpdateTexture(vxrend_texture, null, scrn_surface.pixels, scrn_surface.pitch);
 }
 
 void UnInit_Renderer(){
@@ -63,12 +62,13 @@ void UnInit_Renderer(){
 }
 
 void Set_Renderer_Fog(uint fogcolor, uint fogrange){
-<<<<<<< HEAD
 	VoxlapInterface.fogcol=fogcolor|0xff000000;
-=======
-	VoxlapInterface.fogcol=fogcolor;
->>>>>>> c0647357897cb1e9b56b8b1e953651419abf5053
 	VoxlapInterface.maxscandist=fogrange;
+}
+
+//Note: It's ok if you don't even plan on implementing blur in your renderer
+void Set_Blur(float amount){
+	VoxlapInterface.anginc=1.0+amount*2.0;
 }
 
 uint Voxel_FindFloorZ(uint x, uint y, uint z){
@@ -140,6 +140,7 @@ extern(C) struct KV6Sprite_t{
 	float xpos, ypos, zpos;
 	float xdensity, ydensity, zdensity;
 	uint color_mod, replace_black;
+	ubyte check_visibility;
 	KV6Model_t *model;
 }
 
@@ -148,7 +149,7 @@ int freadptr(void *buf, uint bytes, File f){
 		writeflnlog("freadptr called with void buffer");
 		return 0;
 	}
-	return cstdio_fread(buf, bytes, 1u, f.getFP());
+	return cast(int)cstdio_fread(buf, bytes, 1u, f.getFP());
 }
 
 KV6Model_t *Load_KV6(string fname){
@@ -255,30 +256,19 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 		return;
 	uint blkx, blkz;
 	KV6Voxel_t *sblk, blk, eblk;
+	uint blockadvance=1;
 	{
 		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.z, zdiff=spr.zpos-RenderCameraPos.y;
 		//Change this and make it consider ydiff too when not using Voxlap
 		float l=sqrt(xdiff*xdiff+zdiff*zdiff);
 		if(l>VoxlapInterface.maxscandist)
 			return;
-		//WIP (early exit when sprite would completely be outside of the screen)
-		/*bool Visible_Edge=false;
-		for(uint i=0; i<9; i++){
-			float x=spr.xpos+spr.model.xsize*spr.xdensity*(i%2 ? 1.0 : -1.0)/2.0;
-			float y=spr.ypos+spr.model.ysize*spr.ydensity*(i>3 ? 1.0 : -1.0)/2.0;
-			float z=spr.zpos+spr.model.zsize*spr.zdensity*((i%4)>1 ? 1.0 : -1.0)/2.0;
-			if(i==8){
-				x=spr.xpos; y=spr.ypos; z=spr.zpos;
-			}
-			int screenx, screeny;
-			float renddist=Vox_Project2D(x, y, z, &screenx, &screeny);
-			if(screenx>=0 || screeny>=0)
-				Visible_Edge=true;
-		}
-		if(!Visible_Edge)
-			return;*/
+		if(!spr.xdensity || !spr.ydensity || !spr.zdensity)
+			return;
+		blockadvance=cast(uint)(l*l/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0)+1;
 	}
-	float KVRectW=(cast(float)FrameBuf.w)/2.0*XFOV_Ratio*1.5, KVRectH=(cast(float)FrameBuf.h)/2.0*YFOV_Ratio*1.5;
+	int screen_w=FrameBuf.w, screen_h=FrameBuf.h;
+	float KVRectW=(cast(float)FrameBuf.w)/2.0*XFOV_Ratio*2.0, KVRectH=(cast(float)FrameBuf.h)/2.0*YFOV_Ratio*2.0;
 	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
 	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
@@ -291,14 +281,14 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 	rot_sx=sin((spr.rhe)*PI/180.0); rot_cx=cos((spr.rhe)*PI/180.0);
 	rot_sy=sin(-(spr.rti+90.0)*PI/180.0); rot_cy=cos(-(spr.rti+90.0)*PI/180.0);
 	rot_sz=sin(-spr.rst*PI/180.0); rot_cz=cos(-spr.rst*PI/180.0);
-	for(blkx=0; blkx<spr.model.xsize; ++blkx){
-		for(blkz=0; blkz<spr.model.zsize; ++blkz){
+	for(blkx=0; blkx<spr.model.xsize; blkx+=blockadvance){
+		for(blkz=0; blkz<spr.model.zsize; blkz+=blockadvance){
 			uint index=Count_KV6Blocks(spr.model, blkx, blkz);
 			if(index>=spr.model.voxelcount)
 				continue;
 			sblk=&spr.model.voxels[index];
 			eblk=&sblk[cast(uint)spr.model.ylength[blkx][blkz]];
-			for(blk=sblk; blk<eblk; ++blk){
+			for(blk=sblk; blk<eblk; blk+=blockadvance){
 				if(!blk.visiblefaces)
 					continue;
 				float fnx=(blkx-spr.model.xpivot+.5)*spr.xdensity;
@@ -316,13 +306,13 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 				}*/
 				int screenx, screeny;
 				float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
-				if(renddist<0.0)
+				if(renddist<0.0 || isNaN(renddist))
 					continue;
-				if(screenx<0 || screeny<0)
-					continue;
-				const float s=350.0;
-				uint w=cast(uint)(KVRectW*sprdensity/renddist)+1, h=cast(uint)(KVRectH*sprdensity/renddist)+1;
+				int w=cast(int)(KVRectW*sprdensity/renddist)+1, h=cast(int)(KVRectH*sprdensity/renddist)+1;
 				screenx-=w>>1; screeny-=h>>1;
+				if(screenx+w<0 || screeny+h<0 || screenx>=screen_w || screeny>=screen_h){
+					continue;
+				}
 				uint vxcolor=blk.color;
 				static if(Enable_Black_Color_Replace){
 					if((vxcolor&0x00ffffff)==0x00040404)
@@ -340,8 +330,43 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 					vxcolor=(color_r<<16) | (color_g<<8) | (color_b);
 				}
 				Vox_Calculate_2DFog(cast(ubyte*)&vxcolor, fnx-RenderCameraPos.x, fnz-RenderCameraPos.y);
-				Vox_DrawRect2D(screenx, screeny, w, h, vxcolor, renddist);
+				Vox_DrawRect2D(screenx, screeny, w, h, vxcolor|0xff000000, renddist);
 			}
 		}
 	}
+}
+
+void Draw_Smoke_Circle(int sx, int sy, int radius, uint color, uint alpha, float dist){
+	if(dist>VoxlapInterface.maxscandist)
+		return;
+	int w=radius*2, h=radius*2;
+	immutable uint fb_w=FrameBuf.w, fb_h=FrameBuf.h;
+	uint neg_alpha=256-alpha;
+	w=min(fb_w-sx, w); h=min(fb_h-sy, h);
+	uint *pty=cast(uint*)((cast(ubyte*)(FrameBuf.pixels))+(sx<<2)+(sy*FrameBuf.pitch));
+	int zbufoff=VoxlapInterface.zbufoff;
+	float *zbufptr=cast(float*)((cast(ubyte*)pty)+zbufoff);
+	uint cr=((color>>16)&255)*alpha, cg=((color>>8)&255)*alpha, cb=((color>>0)&255)*alpha;
+	int pow_r=radius*radius;
+	int min_x=sx<0 ? -sx : 0, min_y=sy<0 ? -sy : 0;
+	int max_x=sx+w<fb_w ? w : fb_w-sx-1, max_y=sy+h<fb_h ? h : fb_h-sy-1;
+	for(int y=min_y; y<max_y;++y){
+		if(y<min_y)
+			continue;
+		int cy=y-radius;
+		int powr=pow_r-cy*cy;
+		for(int x=min_x; x<max_x; ++x){
+			int cx=x-radius;
+			if(cx*cx>powr)
+				continue;
+			if(dist<zbufptr[x]){
+				zbufptr[x]=dist;
+				pty[x]=0xff000000 | (((touint((pty[x]>>16)&255)*neg_alpha+cr)>>8)<<16) |
+				(((touint((pty[x]>>8)&255)*neg_alpha+cg)>>8)<<8) | ((touint((pty[x]&255)*neg_alpha+cb)>>8)<<0);
+			}
+		}
+		pty+=fb_w;
+		zbufptr+=fb_w;
+	}
+	return;
 }
