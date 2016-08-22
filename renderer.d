@@ -9,7 +9,7 @@ import protocol;
 import gfx;
 import world;
 import misc;
-import vector;
+import vector; 
 
 SDL_Surface *scrn_surface;
 
