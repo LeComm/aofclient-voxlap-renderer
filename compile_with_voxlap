@@ -1,0 +1,2 @@
+#!/bin/bash
+dmd voxlap5.a *.d *.di -gc -L-L/usr/local/lib -L-lslang -ofmain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d

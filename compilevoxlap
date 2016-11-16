@@ -1,2 +1,0 @@
-#!/bin/bash
-dmd *.d *.di ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d libderelict.a voxlap5.a -gc -ofmain

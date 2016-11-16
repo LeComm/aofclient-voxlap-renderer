@@ -1,10 +1,11 @@
-//Replace this file by any other .d file to change the renderer module
-
+//Replace this file by any other renderer.d file to change the renderer module
 import derelict.sdl2.sdl;
 import core.stdc.stdio : cstdio_fread=fread;
 import std.algorithm;
 import std.stdio;
 import std.math;
+import std.conv;
+import std.string;
 import voxlap;
 import protocol;
 import gfx;
@@ -12,56 +13,113 @@ import world;
 import misc;
 import vector;
 
+alias RendererTexture_t=SDL_Texture *;
+uint Renderer_WindowFlags=0;
+
 dpoint3d RenderCameraPos;
 dpoint3d Cam_ist, Cam_ihe, Cam_ifo;
-
 vx5_interface *VoxlapInterface;
 
-SDL_Surface *FrameBuf;
+SDL_Surface *vxrend_framebuf;
+SDL_Texture *vxrend_texture;
 
-void Init_Renderer(){
-	scrn_surface=SDL_CreateRGBSurface(0, ScreenXSize, ScreenYSize, 32, 0, 0, 0, 0);
+SDL_Renderer *scrn_renderer;
+
+void Renderer_Init(){
+	vxrend_framebuf=SDL_CreateRGBSurface(0, ScreenXSize, ScreenYSize, 32, 0, 0, 0, 0);
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
 	Set_Fog(0x0000ffff, 128);
 	Vox_SetSideShades(32, 16, 8, 4, 32, 64);
 }
 
-void Load_Map(ubyte[] map){
+void Renderer_SetUp(){
+	scrn_renderer=SDL_CreateRenderer(scrn_window, -1, SDL_RENDERER_ACCELERATED);
+	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, ScreenXSize, ScreenYSize);
+}
+
+uint surfaceconv=0, textureupload=0;
+
+RendererTexture_t Renderer_TextureFromSurface(SDL_Surface *srfc){
+	return SDL_CreateTextureFromSurface(scrn_renderer, srfc);
+}
+
+void Renderer_UploadToTexture(SDL_Surface *srfc, SDL_Texture *tex){
+	SDL_UpdateTexture(tex, null, srfc.pixels, srfc.pitch);
+}
+
+void Renderer_DestroyTexture(RendererTexture_t tex){
+	SDL_DestroyTexture(tex);
+}
+
+void Renderer_LoadMap(ubyte[] map){
 	Vox_vloadvxl(cast(const char*)map.ptr, cast(uint)map.length);
 }
 
-float XFOV_Ratio=1.0, YFOV_Ratio=1.0;
-
-void SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
-	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
-	Vox_ConvertToEucl(xrotation+90.0, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	YFOV_Ratio=XFOV_Ratio=45.0/xfov;
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, FrameBuf.w/2, FrameBuf.h/2, FrameBuf.w*XFOV_Ratio);
+void Renderer_Blit2D(RendererTexture_t tex, uint[2]* size, SDL_Rect *dstr, ubyte alpha=255, ubyte[3] *ColorMod=null, SDL_Rect *srcr=null){
+	ubyte[3] orig_cmod;
+	ubyte orig_alphamod;
+	SDL_BlendMode orig_blendmode;
+	bool blend=alpha<255 || ColorMod;
+	if(blend){
+		SDL_GetTextureBlendMode(tex, &orig_blendmode);
+		SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+	}
+	if(ColorMod){
+		SDL_GetTextureColorMod(tex, &orig_cmod[0], &orig_cmod[1], &orig_cmod[2]);
+		SDL_SetTextureColorMod(tex, (*ColorMod)[0], (*ColorMod)[1], (*ColorMod)[2]);
+	}
+	if(alpha<255){
+		SDL_GetTextureAlphaMod(tex, &orig_alphamod);
+		SDL_SetTextureAlphaMod(tex, alpha);
+	}
+	SDL_RenderCopy(scrn_renderer, tex, srcr, dstr);
+	if(alpha<255){
+		SDL_SetTextureAlphaMod(tex, orig_alphamod);
+	}
+	if(ColorMod){
+		SDL_SetTextureColorMod(tex, orig_cmod[0], orig_cmod[1], orig_cmod[2]);
+	}
+	if(blend){
+		SDL_SetTextureBlendMode(tex, orig_blendmode);
+	}
 }
 
-void Prepare_Render(){
-	
+void Renderer_StartRendering(bool Render_3D){
+	voxsetframebuffer(cast(int)vxrend_framebuf.pixels, vxrend_framebuf.pitch, vxrend_framebuf.w, vxrend_framebuf.h);
 }
 
-void Set_Frame_Buffer(SDL_Surface *srfc){
-	voxsetframebuffer(cast(int)srfc.pixels, srfc.pitch, srfc.w, srfc.h);
-	FrameBuf=srfc;
-}
-
-void Render_Voxels(){
+void Renderer_DrawVoxels(){
 	opticast();
 }
 
-void Render_FinishRendering(){
-	SDL_UpdateTexture(vxrend_texture, null, scrn_surface.pixels, scrn_surface.pitch);
+void Renderer_Start2D(){
+	SDL_UpdateTexture(vxrend_texture, null, vxrend_framebuf.pixels, vxrend_framebuf.pitch);
+	SDL_RenderCopy(scrn_renderer, vxrend_texture, null, null);
 }
 
-void UnInit_Renderer(){
+void Renderer_Finish2D(){
+}
+
+void Renderer_UnInit(){
 	uninitvoxlap();
 }
 
-void Set_Renderer_Fog(uint fogcolor, uint fogrange){
+void Renderer_ShowInfo(){}
+
+void Renderer_FinishRendering(){
+	SDL_RenderPresent(scrn_renderer);
+}
+
+float XFOV_Ratio=1.0, YFOV_Ratio=1.0;
+void Renderer_SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
+	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
+	Vox_ConvertToEucl(xrotation+90.0, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
+	YFOV_Ratio=XFOV_Ratio=45.0/xfov;
+	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf.w/2, vxrend_framebuf.h/2, vxrend_framebuf.w*XFOV_Ratio);
+}
+
+void Renderer_SetFog(uint fogcolor, uint fogrange){
 	VoxlapInterface.fogcol=fogcolor|0xff000000;
 	VoxlapInterface.maxscandist=fogrange;
 }
@@ -230,13 +288,21 @@ bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, ou
 	return xpos>=0 && ypos>=0;
 }
 
-alias Render_Rectangle=Vox_DrawRect2D;
+void Renderer_Draw3DParticle(float x, float y, float z, int w, int h, uint col){
+	float dist;
+	int scrx, scry;
+	int hw=w>>1, hh=h>>1;
+	Project2D(x, y, z, &dist, scrx, scry);
+	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf.w-hw || scry>=vxrend_framebuf.h-hh)
+		return;
+	Vox_DrawRect2D(scrx, scry, to!int(w/dist)+1, to!int(h/dist)+1, col, dist);
+}
 
-/*void Render_Rectangle(int x, int y, int w, int h, uint col, float zdist){
-	Vox_DrawRect2D(x, y, w, h, col, zdist);
-}*/
+void Renderer_Draw3DParticle(Vector3_t *pos, int w, int h, uint col){
+	return Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, col);
+}
 
-void Render_Sprite(KV6Sprite_t *spr){
+void Renderer_DrawSprite(KV6Sprite_t *spr){
 	if(spr.color_mod){
 		if(spr.replace_black)
 			_Render_Sprite!(true, true)(spr);
@@ -267,8 +333,8 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 			return;
 		blockadvance=cast(uint)(l*l/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0)+1;
 	}
-	int screen_w=FrameBuf.w, screen_h=FrameBuf.h;
-	float KVRectW=(cast(float)FrameBuf.w)/2.0*XFOV_Ratio*2.0, KVRectH=(cast(float)FrameBuf.h)/2.0*YFOV_Ratio*2.0;
+	int screen_w=vxrend_framebuf.w, screen_h=vxrend_framebuf.h;
+	float KVRectW=(cast(float)vxrend_framebuf.w)/2.0*XFOV_Ratio*2.0, KVRectH=(cast(float)vxrend_framebuf.h)/2.0*YFOV_Ratio*2.0;
 	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
 	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
 	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
@@ -336,14 +402,17 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod)(KV
 	}
 }
 
-void Draw_Smoke_Circle(int sx, int sy, int radius, uint color, uint alpha, float dist){
+void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, uint color, uint alpha, float dist){
+	int sx, sy;
+	if(!Project2D(xpos, ypos, zpos, &dist, sx, sy))
+		return;
 	if(dist>VoxlapInterface.maxscandist)
 		return;
 	int w=radius*2, h=radius*2;
-	immutable uint fb_w=FrameBuf.w, fb_h=FrameBuf.h;
+	immutable uint fb_w=vxrend_framebuf.w, fb_h=vxrend_framebuf.h;
 	uint neg_alpha=256-alpha;
 	w=min(fb_w-sx, w); h=min(fb_h-sy, h);
-	uint *pty=cast(uint*)((cast(ubyte*)(FrameBuf.pixels))+(sx<<2)+(sy*FrameBuf.pitch));
+	uint *pty=cast(uint*)((cast(ubyte*)(vxrend_framebuf.pixels))+(sx<<2)+(sy*vxrend_framebuf.pitch));
 	int zbufoff=VoxlapInterface.zbufoff;
 	float *zbufptr=cast(float*)((cast(ubyte*)pty)+zbufoff);
 	uint cr=((color>>16)&255)*alpha, cg=((color>>8)&255)*alpha, cb=((color>>0)&255)*alpha;

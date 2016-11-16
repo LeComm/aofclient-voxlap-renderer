@@ -60,10 +60,15 @@ static unsigned int LSWAPIL (unsigned int a) { return(((a>>8)&0xff00)+((a&0xff00
 static unsigned short SSWAPIL (unsigned short a) { return((a>>8)+(a<<8)); }
 #endif
 
+#if (!(__x86_64__))
 #ifdef __GNUC__
 #include <stdint.h>
 #define INT_PTR intptr_t
 #define UINT_PTR uintptr_t
+#endif
+#else
+#define INT_PTR int
+#define UINT_PTR unsigned int
 #endif
 
 #if !defined(_WIN32) && !defined(__DOS__)
