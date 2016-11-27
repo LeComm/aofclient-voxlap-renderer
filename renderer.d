@@ -30,7 +30,18 @@ void Renderer_Init(){
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
 	Set_Fog(0x0000ffff, 128);
-	Vox_SetSideShades(32, 16, 8, 4, 32, 64);
+	Vector3_t sun=Vector3_t(60.0, 15.0, 0.0).RotationAsDirection();
+	Renderer_SetBlockFaceShading(&sun);
+}
+
+	//X- Z- X+ Z+ Y+ Y-
+void Renderer_SetBlockFaceShading(Vector3_t *shading){
+	Vox_SetSideShades(to!ubyte((1.0+shading.x)*127.5),
+	to!ubyte((1.0+shading.z)*127.5),
+	to!ubyte((1.0-shading.x)*127.5),
+	to!ubyte((1.0-shading.z)*127.5),
+	to!ubyte((1.0-shading.y)*127.5),
+	to!ubyte((1.0+shading.y)*127.5));
 }
 
 void Renderer_SetUp(){
@@ -54,6 +65,22 @@ void Renderer_DestroyTexture(RendererTexture_t tex){
 
 void Renderer_LoadMap(ubyte[] map){
 	Vox_vloadvxl(cast(const char*)map.ptr, cast(uint)map.length);
+}
+
+void Renderer_StartRendering(bool Render_3D){
+	voxsetframebuffer(cast(int)vxrend_framebuf.pixels, vxrend_framebuf.pitch, vxrend_framebuf.w, vxrend_framebuf.h);
+}
+
+void Renderer_DrawVoxels(){
+	opticast();
+}
+
+void Renderer_Start2D(){
+	if(1)
+		*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf.w/2, vxrend_framebuf.h/2)
+		=0xffffff^*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf.w/2, vxrend_framebuf.h/2);
+	SDL_UpdateTexture(vxrend_texture, null, vxrend_framebuf.pixels, vxrend_framebuf.pitch);
+	SDL_RenderCopy(scrn_renderer, vxrend_texture, null, null);
 }
 
 void Renderer_Blit2D(RendererTexture_t tex, uint[2]* size, SDL_Rect *dstr, ubyte alpha=255, ubyte[3] *ColorMod=null, SDL_Rect *srcr=null){
@@ -85,19 +112,6 @@ void Renderer_Blit2D(RendererTexture_t tex, uint[2]* size, SDL_Rect *dstr, ubyte
 	}
 }
 
-void Renderer_StartRendering(bool Render_3D){
-	voxsetframebuffer(cast(int)vxrend_framebuf.pixels, vxrend_framebuf.pitch, vxrend_framebuf.w, vxrend_framebuf.h);
-}
-
-void Renderer_DrawVoxels(){
-	opticast();
-}
-
-void Renderer_Start2D(){
-	SDL_UpdateTexture(vxrend_texture, null, vxrend_framebuf.pixels, vxrend_framebuf.pitch);
-	SDL_RenderCopy(scrn_renderer, vxrend_texture, null, null);
-}
-
 void Renderer_Finish2D(){
 }
 
@@ -122,6 +136,11 @@ void Renderer_SetCamera(float xrotation, float yrotation, float tilt, float xfov
 void Renderer_SetFog(uint fogcolor, uint fogrange){
 	VoxlapInterface.fogcol=fogcolor|0xff000000;
 	VoxlapInterface.maxscandist=fogrange;
+}
+
+void Renderer_FillRect(SDL_Rect *rct, ubyte[4] *color){
+	SDL_SetRenderDrawColor(scrn_renderer, (*color)[0], (*color)[1], (*color)[2], (*color)[3]);
+	SDL_RenderFillRect(scrn_renderer, rct);
 }
 
 //Note: It's ok if you don't even plan on implementing blur in your renderer
@@ -273,6 +292,10 @@ uint Count_KV6Blocks(KV6Model_t *model, uint dstx, uint dsty){
 	return index;
 }
 
+uint[3] Renderer_GetParticleSize(float xsize, float ysize, float zsize){
+	return [to!uint(sqrt(xsize*xsize*.5+zsize*zsize*.5)*ScreenXSize*.25), to!uint(ysize*ScreenYSize/3.0), 0];
+}
+
 int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
 	int[2] scrpos;
 	float dst=Vox_Project2D(xpos, zpos, ypos, &scrpos[0], &scrpos[1]);
@@ -288,18 +311,18 @@ bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, ou
 	return xpos>=0 && ypos>=0;
 }
 
-void Renderer_Draw3DParticle(float x, float y, float z, int w, int h, uint col){
+void Renderer_Draw3DParticle(float x, float y, float z, uint w, uint h, uint l, uint col){
 	float dist;
 	int scrx, scry;
 	int hw=w>>1, hh=h>>1;
 	Project2D(x, y, z, &dist, scrx, scry);
-	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf.w-hw || scry>=vxrend_framebuf.h-hh)
+	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf.w-hw || scry>=vxrend_framebuf.h-hh || dist<1.0)
 		return;
-	Vox_DrawRect2D(scrx, scry, to!int(w/dist)+1, to!int(h/dist)+1, col, dist);
+	Vox_DrawRect2D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col, dist);
 }
 
-void Renderer_Draw3DParticle(Vector3_t *pos, int w, int h, uint col){
-	return Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, col);
+void Renderer_Draw3DParticle(Vector3_t *pos, uint w, uint h, uint l, uint col){
+	return Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, l, col);
 }
 
 void Renderer_DrawSprite(KV6Sprite_t *spr){
