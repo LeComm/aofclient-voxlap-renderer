@@ -62,7 +62,7 @@ LeCom's STUFF THAT IS NOT IN THE ORIGINAL VOXLAP											*/
 #define __USE_MMX__ 0
 
 #define __VOXEL_BRIGHTNESS__ 275
-#define __LSHADE_FACTOR__ 0
+#define __LSHADE_FACTOR__ 2
 
 /*I had to use a macro instead of making it decide dynamically, because of bottlenecks in gline.
 I also won't add several versions of gline since I would have to update all versions after a change etc.*/
