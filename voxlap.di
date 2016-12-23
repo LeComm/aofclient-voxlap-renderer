@@ -1,35 +1,41 @@
-extern(C) struct lpoint3d{ int x, y, z; }
-extern(C) struct point3d{ float x, y, z; }
-extern(C) struct dpoint3d{ double x, y, z; }
+extern(C){
+	
+struct lpoint3d{ int x, y, z; }
+struct point3d{ float x, y, z; }
+struct dpoint3d{ double x, y, z; }
 
-extern(C) int initvoxlap();
-extern(C) int uninitvoxlap();
-extern(C) void voxsetframebuffer(int, int, int, int);
-extern(C) void setcamera(dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *, float, float, float);
-extern(C) void opticast();
-
-
-extern(C) int Vox_vloadvxl(const char*, uint);
-extern(C) int Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
-extern(C) int loadvxl(const char*);
-
-extern(C) void Vox_SetSideShades(ubyte, ubyte, ubyte, ubyte, ubyte, ubyte);
+int initvoxlap();
+int uninitvoxlap();
+void voxsetframebuffer(int*, int, int, int);
+void setcamera(dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *, float, float, float);
+void opticast();
 
 
-extern(C) int isvoxelsolid(int, int, int);
-extern(C) int getfloorz(int, int, int);
-extern(C) int getcube(int, int, int);
-extern(C) void setcube(int, int, int, int);
-extern(C) void Vox_Calculate_2DFog(ubyte*, float, float);
+int Vox_vloadvxl(const char*, uint);
+void Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
+int loadvxl(const char*);
+
+void Vox_SetSideShades(ubyte, ubyte, ubyte, ubyte, ubyte, ubyte);
+void updatebbox(int, int, int, int, int, int, int);
+void updatevxl();
+void genmipvxl(int, int, int, int);
+void updatelighting(int, int, int, int, int, int);
+void setflash(float, float, float, int, int, int);
+
+int isvoxelsolid(int, int, int);
+int getfloorz(int, int, int);
+int* getcube(int, int, int);
+void setcube(int, int, int, int);
+void Vox_Calculate_2DFog(ubyte*, float, float);
 
 
-extern(C) float Vox_Project2D(float, float, float, int*, int*);
-extern(C) int Vox_DrawRect2D(int, int, uint, uint, uint, float);
+float Vox_Project2D(float, float, float, int*, int*);
+int Vox_DrawRect2D(int, int, uint, uint, uint, float);
 
-extern(C) vx5_interface *Vox_GetVX5();
+vx5_interface *Vox_GetVX5();
 
 immutable uint FLPIECES=256; /*Max # of separate falling pieces*/
-extern(C) struct flstboxtype/*(68 bytes)*/
+struct flstboxtype/*(68 bytes)*/
 {
 	lpoint3d chk; /*a solid point on piece (x,y,pointer) (don't touch!)*/
 	int i0, i1; /*indices to start&end of slab list (don't touch!)*/
@@ -45,21 +51,21 @@ extern(C) struct flstboxtype/*(68 bytes)*/
 
 	/*Lighting variables: (used by updatelighting)*/
 immutable uint MAXLIGHTS=256;
-extern(C) struct lightsrctype{ point3d p; float r2, sc; char Light_KV6;}
+struct lightsrctype{ point3d p; float r2, sc; char Light_KV6;}
 
 	/*Used by setspans/meltspans. Ordered this way to allow sorting as longs!*/
-extern(C) struct vspans{ char z1, z0, x, y; }
+struct vspans{ char z1, z0, x, y; }
 
 immutable uint MAXFRM=1024; /*MUST be even number for alignment!*/
 
 	/*Voxlap5 shared global variables:*/
-extern(C) struct vx5_interface
+struct vx5_interface
 {
 	/*------------------------ DATA coming from VOXLAP5 ------------------------*/
 
 		/*Clipmove hit point info (use this after calling clipmove):*/
 	double clipmaxcr; /*clipmove always calls findmaxcr even with no movement*/
-	dpoint3d cliphit[3];
+	dpoint3d[3] cliphit;
 	int cliphitnum;
 
 		/*Bounding box written by last set* VXL writing call*/
@@ -67,14 +73,14 @@ extern(C) struct vx5_interface
 
 		/*Falling voxels shared data:*/
 	int flstnum;
-	flstboxtype flstcnt[FLPIECES];
+	flstboxtype[FLPIECES] flstcnt;
 
 		/*Total count of solid voxels in .VXL map (included unexposed voxels)*/
 	int globalmass;
 
 		/*Temp workspace for KFA animation (hinge angles)*/
 		/*Animsprite writes these values&you may modify them before drawsprite*/
-	short kfaval[MAXFRM];
+	short[MAXFRM] kfaval;
 
 	/*------------------------ DATA provided to VOXLAP5 ------------------------*/
 
@@ -88,7 +94,7 @@ extern(C) struct vx5_interface
 		/*For example min=8,max=12 permits only planes 8,9,10,11 to draw*/
 	int xplanemin, xplanemax;
 	
-	/*Stuff added by LeCom*/
+	/*Stuff added by lecom*/
 	/*0.0 - 1.0*/
 	float KV6_Darkness;
 	int zbufoff;
@@ -110,9 +116,10 @@ extern(C) struct vx5_interface
 
 		/*Lighting variables: (used by updatelighting)*/
 	int lightmode; /*0 (default), 1:simple lighting, 2:lightsrc lighting*/
-	lightsrctype lightsrc[MAXLIGHTS]; /*(?,?,?),128*128,262144*/
+	lightsrctype[MAXLIGHTS] lightsrc; /*(?,?,?),128*128,262144*/
 	int numlights;
 
 	int fallcheck;
 	
 };
+}

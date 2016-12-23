@@ -25,9 +25,11 @@ Original Voxlap Engine non-commercial license:
 
 
 Compiling:
-./compile
-
+	GCC:
+		./compile_gcc_opt or ./compile_gcc_noopt (opt = optimize)
+	clang:
+		./compile_clang_opt or ./compile_clang_noopt (opt = optimize)
 Using:
 Put renderer.d, voxlap.di, voxlap5.a and compilevoxlap into aof-client directory
-./compilevoxlap
+./compile_with_voxlap or ./compile_with_voxlap_ldc for that sick framerate
 ./main (to start the game, don't forget to run the server first)

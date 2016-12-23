@@ -30,10 +30,10 @@ void mmxcolorsub (long *);
 
 static inline void mmxcoloradd (long *a)
 {
-	((uint8_t *)a)[0] += ((uint8_t *)((unsigned int)flashbrival))[0];
-	((uint8_t *)a)[1] += ((uint8_t *)((unsigned int)flashbrival))[1];
-	((uint8_t *)a)[2] += ((uint8_t *)((unsigned int)flashbrival))[2];
-	((uint8_t *)a)[3] += ((uint8_t *)((unsigned int)flashbrival))[3];
+	((uint8_t *)a)[0] += ((uint8_t *)(&flashbrival))[0];
+	((uint8_t *)a)[1] += ((uint8_t *)(&flashbrival))[1];
+	((uint8_t *)a)[2] += ((uint8_t *)(&flashbrival))[2];
+	((uint8_t *)a)[3] += ((uint8_t *)(&flashbrival))[3];
 }
 
 static inline void mmxcolorsub (long *a)

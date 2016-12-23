@@ -2,7 +2,7 @@
  This file has been modified from Ken Silverman's original release*/
 
 /***********************************************************************************************
-Edited by LeCom
+Edited by lecom
 ***********************************************************************************************/
 
 #ifndef __VOXLAP5_H__
@@ -31,6 +31,21 @@ Edited by LeCom
 #error "Cannot link C frontend to C++ Backend"
 #endif*/
 
+#ifdef __x86_64__
+#define __64BIT_SYSTEM__ 1
+#else
+#define __64BIT_SYSTEM__ 0
+#endif
+
+#ifdef __clang__
+#if (__clang__==1)
+#define __CLANG_GLOBALVAR__ volatile
+#endif
+#endif
+
+#ifndef __CLANG_GLOBALVAR__
+#define __CLANG_GLOBALVAR__ static
+#endif
 
 #if defined(VOXLAP_C) && defined(__cplusplus)
 	extern "C" {
@@ -290,7 +305,7 @@ extern VOXLAP_DLL_FUNC long savevxl (const char *, dpoint3d *, dpoint3d *, dpoin
 extern VOXLAP_DLL_FUNC long loadsky (const char *);
 
 	/*Screen related functions:*/
-extern VOXLAP_DLL_FUNC void voxsetframebuffer (long, long, long, long);
+extern VOXLAP_DLL_FUNC void voxsetframebuffer (long*, long, long, long);
 extern VOXLAP_DLL_FUNC void setsideshades (char, char, char, char, char, char);
 extern VOXLAP_DLL_FUNC void setcamera (dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *, float, float, float);
 extern VOXLAP_DLL_FUNC void opticast ();
@@ -342,7 +357,7 @@ extern VOXLAP_DLL_FUNC long isvoxelsolid (long, long, long);
 extern VOXLAP_DLL_FUNC long anyvoxelsolid (long, long, long, long);
 extern VOXLAP_DLL_FUNC long anyvoxelempty (long, long, long, long);
 extern VOXLAP_DLL_FUNC long getfloorz (long, long, long);
-extern VOXLAP_DLL_FUNC long getcube (long, long, long);
+extern VOXLAP_DLL_FUNC long* getcube (long, long, long);
 
 	/*VXL writing functions (optimized & bug-free):*/
 extern VOXLAP_DLL_FUNC void setcube (long, long, long, long);
@@ -408,7 +423,7 @@ extern VOXLAP_DLL_FUNC int Vox_SpriteHitScan(Vox_VX5Sprite *, point3d *, point3d
 extern VOXLAP_DLL_FUNC struct vx5_interface *Vox_GetVX5();
 extern VOXLAP_DLL_FUNC long Vox_vloadvxl(const char*, unsigned int);
 extern VOXLAP_DLL_FUNC Vox_VX5Sprite *Vox_InitSprite(Vox_VX5Sprite *);
-extern VOXLAP_DLL_FUNC int Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
+extern VOXLAP_DLL_FUNC void Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
 extern VOXLAP_DLL_FUNC long Vox_DeleteFloatingBlock (long);
 extern VOXLAP_DLL_FUNC int Vox_RenderPolygon (unsigned int color, int ulx, int uly, int urx, 
 int ury, int llx, int lly, int lrx, int lry);
