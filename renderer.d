@@ -44,6 +44,7 @@ float global_lighting_update_timer=0.0f;
 float global_lighting_update_interval=1.0f;
 
 ubyte RendererBlurAlpha=0;
+float RendererBlurAnginc=0.0;
 
 bool[][] BBoxes_Set;
 
@@ -54,7 +55,6 @@ float Renderer_BaseQuality=1.0;
 void Renderer_Init(){
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
-	VoxlapInterface.anginc=Renderer_BaseQuality;
 	Renderer_SetFog(0x0000ffff, 128);
 }
 
@@ -64,7 +64,7 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	vxrend_framebuf=SDL_CreateRGBSurface(0, screen_xsize, screen_ysize, 32, 0, 0, 0, 0);
 	vxrend_framebuf_pixels=cast(int*)vxrend_framebuf.pixels;
 	vxrend_framebuf_pitch=vxrend_framebuf.pitch; vxrend_framebuf_w=vxrend_framebuf.w; vxrend_framebuf_h=vxrend_framebuf.h;
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+	//SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
 	if(!scrn_renderer)
 		scrn_renderer=SDL_CreateRenderer(scrn_window, -1, SDL_RENDERER_ACCELERATED);
 	if(vxrend_texture)
@@ -152,6 +152,7 @@ void Renderer_DrawVoxels(){
 			bdmg.UpdateVoxel();
 		}
 	}
+	VoxlapInterface.anginc=Renderer_BaseQuality+RendererBlurAnginc;
 	opticast();
 }
 
@@ -234,10 +235,10 @@ void Renderer_FillRect(SDL_Rect *rct, uint color){
 	SDL_RenderFillRect(scrn_renderer, rct);
 }
 
-//NOTE: It's ok if you don't even plan on implementing blur in your renderer if it's some 100% CPU-based crap that would only get lagged down
+//NOTE: It's ok if you don't even plan on implementing blur in your renderer if it's some 100% CPU-based scrap that would only get lagged down
 void Renderer_SetBlur(float amount){
 	RendererBlurAlpha=cast(ubyte)(32+(tofloat(255-32)/(1.0f+amount)));
-	VoxlapInterface.anginc=Renderer_BaseQuality+floor(amount*5.0f)/5.0f*2.0f;
+	RendererBlurAnginc=floor(amount*5.0f)/5.0f*2.0f;
 }
 
 uint Voxel_FindFloorZ(uint x, uint y, uint z){
@@ -457,8 +458,8 @@ Model_t *Load_KV6(string fname){
 			writeflnlog("Note: File %s contains a useless suggested palette block (SLAB6)", fname);
 		}
 		else{
-			writeflnlog("Warning: File %s contains invalid data after its ending (corrupted file?)", fname);
-			writeflnlog("KV6 size: (%d|%d|%d), pivot: (%d|%d|%d), amount of voxels: %d", model.xsize, model.ysize, model.zsize, 
+			writeflnlog("Warning: File %s contains invalid data \"%s\" after its ending (corrupted file?)", fname, cast(ubyte[])palette);
+			writeflnlog("KV6 size: (%d|%d|%d), pivot: (%f|%f|%f), amount of voxels: %d", model.xsize, model.ysize, model.zsize, 
 			model.xpivot, model.ypivot, model.zpivot, voxelcount);
 		}
 	}
@@ -500,6 +501,8 @@ void Renderer_Draw3DParticle(float x, float y, float z, RendererParticleSize_t w
 void Renderer_Draw3DParticle(Vector3_t *pos, RendererParticleSize_t w, RendererParticleSize_t h, RendererParticleSize_t l, uint col){
 	return Renderer_Draw3DParticle(pos.x, pos.y, pos.z, w, h, l, col);
 }
+
+alias Renderer_DrawWireframe=Renderer_DrawSprite;
 
 void Renderer_DrawSprite(Sprite_t *spr){
 	if(!Sprite_Visible(spr))
@@ -546,31 +549,32 @@ void Renderer_DrawSprite(Sprite_t *spr){
 void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, alias Brighten)(Sprite_t *spr){
 	uint blkx, blkz;
 	ModelVoxel_t *sblk, blk, eblk;
-	uint blockadvance=1;
+	float modeldist;
 	{
 		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.z, zdiff=spr.zpos-RenderCameraPos.y;
 		//Change this and make it consider ydiff too when not using Voxlap
-		float l=sqrt(xdiff*xdiff+zdiff*zdiff);
-		if(l>VoxlapInterface.maxscandist)
+		modeldist=sqrt(xdiff*xdiff+zdiff*zdiff);
+		if(modeldist>VoxlapInterface.maxscandist)
 			return;
 		if(!spr.xdensity || !spr.ydensity || !spr.zdensity)
 			return;
-		blockadvance=cast(uint)(l*l/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0f)+1;
-	}
-	int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
-	float KVRectW=(cast(float)vxrend_framebuf_w)/2.0f*XFOV_Ratio*2.0f, KVRectH=(cast(float)vxrend_framebuf_h)/2.0f*YFOV_Ratio*2.0f;
-	float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
-	float rot_sx, rot_cx, rot_sy, rot_cy, rot_sz, rot_cz;
+		}
+	immutable uint blockadvance=cast(uint)(modeldist*modeldist/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0f)+1;
+	immutable int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
+	immutable float KVRectW=(cast(float)vxrend_framebuf_w)/2.0f*XFOV_Ratio*2.0f, KVRectH=(cast(float)vxrend_framebuf_h)/2.0f*YFOV_Ratio*2.0f;
+	immutable float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
 	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
+	immutable uint fog_color_mod_r=(VoxlapInterface.fogcol>>16)&255, fog_color_mod_g=(VoxlapInterface.fogcol>>8)&255, fog_color_mod_b=(VoxlapInterface.fogcol)&255;
+	immutable float inv_maxscandist=1.0/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*255.0;
 	static if(Enable_Color_Mod){
 		color_mod_alpha=(spr.color_mod>>24)&255;
 		color_mod_r=(spr.color_mod>>16)&255;
 		color_mod_g=(spr.color_mod>>8)&255;
 		color_mod_b=(spr.color_mod>>0)&255;
 	}
-	rot_sx=sin((spr.rhe)*PI/180.0f); rot_cx=cos((spr.rhe)*PI/180.0f);
-	rot_sy=sin(-(spr.rti+90.0f)*PI/180.0f); rot_cy=cos(-(spr.rti+90.0f)*PI/180.0f);
-	rot_sz=sin(-spr.rst*PI/180.0f); rot_cz=cos(-spr.rst*PI/180.0f);
+	immutable float rot_sx=sin((spr.rhe)*PI/180.0f), rot_cx=cos((spr.rhe)*PI/180.0f);
+	immutable float rot_sy=sin(-(spr.rti+90.0f)*PI/180.0f), rot_cy=cos(-(spr.rti+90.0f)*PI/180.0f);
+	immutable float rot_sz=sin(-spr.rst*PI/180.0f), rot_cz=cos(-spr.rst*PI/180.0f);
 	for(blkx=0; blkx<spr.model.xsize; blkx+=blockadvance){
 		for(blkz=0; blkz<spr.model.zsize; blkz+=blockadvance){
 			uint index=spr.model.offsets[blkx+blkz*spr.model.xsize];
@@ -595,10 +599,10 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, al
 					writeflnlog("%s", (Vector3_t(fnx, fny, fnz)-Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y)).length);
 				}*/
 				int screenx, screeny;
-				float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
+				immutable float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
 				if(renddist<0.0f || isNaN(renddist))
 					continue;
-				int w=cast(int)(KVRectW*sprdensity/renddist)+1, h=cast(int)(KVRectH*sprdensity/renddist)+1;
+				immutable int w=cast(int)(KVRectW*sprdensity/renddist)+1, h=cast(int)(KVRectH*sprdensity/renddist)+1;
 				screenx-=w>>1; screeny-=h>>1;
 				if(screenx+w<0 || screeny+h<0 || screenx>=screen_w || screeny>=screen_h){
 					continue;
@@ -626,16 +630,53 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, al
 					carr=[min(carr[0], cast(ushort)255), min(carr[1], cast(ushort)255), min(carr[2], cast(ushort)255)];
 					vxcolor=carr[0] | (carr[1]<<8) | carr[2]<<16;
 				}
-				Vox_Calculate_2DFog(cast(ubyte*)&vxcolor, fnx-RenderCameraPos.x, fnz-RenderCameraPos.y);
-				Vox_DrawRect2D(screenx, screeny, w, h, vxcolor|0xff000000, renddist);
+				//Vox_Calculate_2DFog(cast(ubyte*)&vxcolor, fnx-RenderCameraPos.x, fnz-RenderCameraPos.y);
+				//Vox_DrawRect2D(screenx, screeny, w, h, vxcolor|0xff000000, renddist);
+				{
+					uint fog_color_mod_alpha=cast(uint)(renddist*renddist*inv_maxscandist);
+					uint fog_color_alpha=256-fog_color_mod_alpha;
+					uint fog_color_r=(vxcolor>>>16)&255; 
+					uint fog_color_g=(vxcolor>>>8)&255; 
+					uint fog_color_b=(vxcolor>>>0)&255;
+					fog_color_r=(fog_color_r*fog_color_alpha+fog_color_mod_r*fog_color_mod_alpha)>>>8;
+					fog_color_g=(fog_color_g*fog_color_alpha+fog_color_mod_g*fog_color_mod_alpha)>>>8;
+					fog_color_b=(fog_color_b*fog_color_alpha+fog_color_mod_b*fog_color_mod_alpha)>>>8;
+					vxcolor=(fog_color_r<<16) | (fog_color_g<<8) | (fog_color_b);
+				}
+				Renderer_DrawRect2D(screenx, screeny, w, h, vxcolor|0xff000000, renddist);
 			}
 		}
 	}
 }
 
+void Renderer_DrawRect2D(int xpos, int ypos, int w, int h, uint col, float dist){
+	if(xpos<0){
+		w+=xpos; xpos=0;
+	}
+	if(ypos<0){
+		h+=ypos; ypos=0;
+	}
+	if(xpos+w>=vxrend_framebuf_w)
+		w=vxrend_framebuf_w-xpos;
+	if(ypos+h>=vxrend_framebuf_h)
+		h=vxrend_framebuf_h-ypos;
+	uint *pixelptr=cast(uint*)((cast(ubyte*)vxrend_framebuf_pixels)+ypos*vxrend_framebuf_pitch+(xpos<<2));
+	float *zbufptr=cast(float*)(VoxlapInterface.zbufoff+(cast(ubyte*)pixelptr));
+	for(uint y=0; y<h; y++){
+		for(uint x=0; x<w; x++){
+			if(zbufptr[x]>dist){
+				zbufptr[x]=dist;
+				pixelptr[x]=col;
+			}
+		}
+		zbufptr=cast(float*)(cast(ubyte*)zbufptr+vxrend_framebuf_pitch);
+		pixelptr=cast(uint*)(cast(ubyte*)pixelptr+vxrend_framebuf_pitch);
+	}
+}
+
 void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, uint color, uint alpha, float dist){
 	int sx, sy;
-	if(!Project2D(xpos, ypos, zpos, &dist, sx, sy))
+	if(!Project2D(xpos, ypos, zpos, &dist, sx, sy) || !Smoke_Enabled)
 		return;
 	if(dist>VoxlapInterface.maxscandist)
 		return;
@@ -646,8 +687,7 @@ void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, ui
 		return;
 	immutable uint neg_alpha=255-alpha;
 	uint *pty=cast(uint*)((cast(ubyte*)(vxrend_framebuf_pixels))+(renderxpos<<2)+(renderypos*vxrend_framebuf_pitch));
-	immutable int zbufoff=VoxlapInterface.zbufoff;
-	float *zbufptr=cast(float*)((cast(ubyte*)pty)+zbufoff);
+	float *zbufptr=cast(float*)((cast(ubyte*)pty)+VoxlapInterface.zbufoff);
 	immutable uint cr=((color>>16)&255)*alpha, cg=((color>>8)&255)*alpha, cb=((color>>0)&255)*alpha;
 	immutable int pow_r=radius*radius;
 	immutable int min_y=renderypos<0 ? -renderypos : 0, max_y=renderypos+h<fb_h ? h : fb_h-renderypos-1;
@@ -688,7 +728,7 @@ uint ScopeTextureWidth=0, ScopeTextureHeight=0;
 auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, MenuElement_t *scope_picture, float xzoom, float yzoom){
 	float scope_dist;
 	int[2] scope_2D_pos=Project2D(scope_pos.x, scope_pos.y, scope_pos.z, &scope_dist);
-	uint scope_xsize=cast(uint)(scope_picture.xsize/scope_dist), scope_ysize=cast(uint)(scope_picture.ysize/scope_dist);
+	immutable  uint scope_xsize=cast(uint)(scope_picture.xsize/scope_dist), scope_ysize=cast(uint)(scope_picture.ysize/scope_dist);
 	scope_2D_pos[0]-=scope_xsize>>1; scope_2D_pos[1]-=to!int(scope_ysize*.3);
 	struct return_type{
 		SDL_Rect dstrect;
@@ -732,8 +772,8 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 	vxrend_framebuf_pixels=cast(int*)vxrend_framebuf.pixels; vxrend_framebuf_pitch=vxrend_framebuf.pitch;
 	vxrend_framebuf_w=vxrend_framebuf.w; vxrend_framebuf_h=vxrend_framebuf.h;
 	Renderer_StartRendering(true);
-	float pow_w=scope_xsize*scope_xsize/2.0f/2.0f;
-	float x_y_ratio=to!float(scope_xsize)/to!float(scope_ysize);
+	immutable float pow_w=scope_xsize*scope_xsize/2.0f/2.0f;
+	immutable float x_y_ratio=to!float(scope_xsize)/to!float(scope_ysize);
 	uint *scope_surface_ptr=cast(uint*)scope_texture_pixels;
 	for(int circle_y=-cast(int)((scope_ysize>>1)); circle_y<=cast(int)(scope_ysize>>1); circle_y++){
 		float circle_x=circle_y*x_y_ratio;

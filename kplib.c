@@ -95,9 +95,11 @@ static __inline int filelength (int h)
 #include <windows.h>
 #endif
 
+#ifndef WIN32_LEAN_AND_MEAN
 int _fileno(FILE *__stream){
 	return -1;
 }
+#endif
 
 #ifndef O_BINARY
 #define O_BINARY 0

@@ -4089,9 +4089,7 @@ long Vox_vloadvxl (const char *data, unsigned int size)
 		while (*v) {v += (*v)<<2;}
 		v += ((((long)v[2])-((long)v[1])+2)<<2);
 	}
-	//I had to do this cause else GCC would throw "unrecognized insn" errors at me
-	unsigned int _size=VSID*VSID;
-	memset(&sptr[_size],0,sizeof(sptr)-_size*4);
+	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
 	vbiti = (((long)v-(long)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
