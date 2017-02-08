@@ -23,9 +23,9 @@ import ui;
 
 alias RendererTexture_t=SDL_Texture *;
 uint Renderer_WindowFlags=0;
-immutable float Renderer_SmokeRenderSpeed=1.0;
+immutable float Renderer_SmokeRenderSpeed=2.0;
 
-dpoint3d RenderCameraPos;
+dpoint3d RenderCameraPos, RenderCameraRot;
 dpoint3d Cam_ist, Cam_ihe, Cam_ifo;
 vx5_interface *VoxlapInterface;
 
@@ -50,12 +50,19 @@ bool[][] BBoxes_Set;
 
 float RendererBrightness=1.0f;
 
-float Renderer_BaseQuality=1.0;
+float Renderer_BaseQuality=1.0f;
 
 void Renderer_Init(){
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
 	Renderer_SetFog(0x0000ffff, 128);
+	{
+		SDL_Surface *smoke_circle_srfc=__SmokeCircle_Generate(smoke_circle_tex_w, smoke_circle_tex_h);
+		smoke_circle_tex=Renderer_NewTexture(smoke_circle_tex_w, smoke_circle_tex_h);
+		Renderer_UploadToTexture(smoke_circle_srfc, smoke_circle_tex);
+		SDL_SetTextureBlendMode(smoke_circle_tex, SDL_BLENDMODE_BLEND);
+		SDL_FreeSurface(smoke_circle_srfc);
+	}
 }
 
 void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
@@ -64,12 +71,13 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	vxrend_framebuf=SDL_CreateRGBSurface(0, screen_xsize, screen_ysize, 32, 0, 0, 0, 0);
 	vxrend_framebuf_pixels=cast(int*)vxrend_framebuf.pixels;
 	vxrend_framebuf_pitch=vxrend_framebuf.pitch; vxrend_framebuf_w=vxrend_framebuf.w; vxrend_framebuf_h=vxrend_framebuf.h;
-	//SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, Config_Read!bool("anti_aliasing") ? "1" : "0");
 	if(!scrn_renderer)
 		scrn_renderer=SDL_CreateRenderer(scrn_window, -1, SDL_RENDERER_ACCELERATED);
+	//SDL_RenderSetLogicalSize(scrn_renderer, vxrend_framebuf_w, vxrend_framebuf_h);
 	if(vxrend_texture)
 		SDL_DestroyTexture(vxrend_texture);
-	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, screen_xsize, screen_ysize);
+	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, vxrend_framebuf_w, vxrend_framebuf_h);
 }
 
 void Renderer_SetQuality(float quality){
@@ -157,6 +165,10 @@ void Renderer_DrawVoxels(){
 }
 
 void Renderer_Start2D(){
+	*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf_w/2, vxrend_framebuf_h/2)=0xffffffff;
+	*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf_w/2+1, vxrend_framebuf_h/2)=0xffffffff;
+	*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf_w/2, vxrend_framebuf_h/2+1)=0xffffffff;
+	*Pixel_Pointer(vxrend_framebuf, vxrend_framebuf_w/2+1, vxrend_framebuf_h/2+1)=0xffffffff;
 	ubyte brightness=to!ubyte(RendererBrightness*255.0f);
 	SDL_UpdateTexture(vxrend_texture, null, vxrend_framebuf_pixels, vxrend_framebuf_pitch);
 	SDL_SetTextureColorMod(vxrend_texture, brightness, brightness, brightness);
@@ -167,7 +179,18 @@ void Renderer_Start2D(){
 	else{
 		SDL_SetTextureBlendMode(vxrend_texture, SDL_BLENDMODE_NONE);
 	}
+	SDL_SetRenderTarget(scrn_renderer, null);
 	SDL_RenderCopy(scrn_renderer, vxrend_texture, null, null);
+	if(RendererSmokeCircleQueue.length){
+		SDL_SetRenderTarget(scrn_renderer, null);
+		SDL_SetTextureBlendMode(smoke_circle_tex, SDL_BLENDMODE_BLEND);
+		foreach(ref smc; RendererSmokeCircleQueue){
+			SDL_SetTextureColorMod(smoke_circle_tex, smc.bcol[0], smc.bcol[1], smc.bcol[2]);
+			SDL_SetTextureAlphaMod(smoke_circle_tex, smc.alpha);
+			SDL_RenderCopy(scrn_renderer, smoke_circle_tex, null, &smc.rect);
+		}
+		RendererSmokeCircleQueue.length=0;
+	}
 }
 
 void Renderer_Blit2D(RendererTexture_t tex, uint[2]* size, SDL_Rect *dstr, ubyte alpha=255, ubyte[3] *ColorMod=null, SDL_Rect *srcr=null){
@@ -215,8 +238,9 @@ void Renderer_FinishRendering(){
 float XFOV_Ratio=1.0f, YFOV_Ratio=1.0f;
 void Renderer_SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
 	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
+	RenderCameraRot.x=xrotation; RenderCameraRot.y=yrotation; RenderCameraRot.z=tilt;
 	Vox_ConvertToEucl(xrotation+90.0f, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	YFOV_Ratio=XFOV_Ratio=45.0f/xfov;
+	YFOV_Ratio=45.0f/yfov; XFOV_Ratio=45.0f/xfov;
 	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
 }
 
@@ -364,8 +388,18 @@ extern(C) struct ModelVoxel_t{
 
 extern(C){
 struct Model_t{
-	int xsize, ysize, zsize;
-	float xpivot, ypivot, zpivot;
+	union{
+		struct{
+			int xsize, ysize, zsize;
+		}
+		int[3] size;
+	}
+	union{
+		struct{
+			float xpivot, ypivot, zpivot;
+		}
+		Vector3_t pivot;
+	}
 	Model_t *lowermip;
 	ModelVoxel_t[] voxels;
 	uint[] offsets;
@@ -382,10 +416,26 @@ struct Model_t{
 	}
 }
 
+//TODO: DEFAULT INITIALIZER (WHEN COMPILING WITH LDC AND MAX OPTIMIZATION, STRUCTS AREN'T AUTO-INITIALIZED)
 struct Sprite_t{
-	float rhe, rti, rst;
-	float xpos, ypos, zpos;
-	float xdensity, ydensity, zdensity;
+	union{
+		struct{
+			float rhe, rti, rst;
+		}
+		Vector3_t rot;
+	}
+	union{
+		struct{
+			float xpos, ypos, zpos;
+		}
+		Vector3_t pos;
+	}
+	union{
+		struct{
+			float xdensity, ydensity, zdensity;
+		}
+		Vector3_t density;
+	}
 	uint color_mod, replace_black;
 	ubyte brightness;
 	ubyte check_visibility;
@@ -481,9 +531,19 @@ int[2] Project2D(float xpos, float ypos, float zpos, float *dist){
 	return scrpos;
 }
 
-bool Project2D(float xpos, float ypos, float zpos, float *dist, out int scrx, out int scry){
+int[2] Project2D(float xpos, float ypos, float zpos){
+	int[2] scrpos;
+	Vox_Project2D(xpos, zpos, ypos, &scrpos[0], &scrpos[1]);
+	return scrpos;
+}
+
+bool Project2D(float xpos, float ypos, float zpos, out int scrx, out int scry){
+	return Vox_Project2D(xpos, zpos, ypos, &scrx, &scry)>=0.0;
+}
+
+bool Project2D(float xpos, float ypos, float zpos, out int scrx, out int scry, float *dist){
 	float dst=Vox_Project2D(xpos, zpos, ypos, &scrx, &scry);
-	if(dist)
+	if(dist!=null)
 		*dist=dst;
 	return dst>=0.0;
 }
@@ -492,7 +552,7 @@ void Renderer_Draw3DParticle(float x, float y, float z, RendererParticleSize_t w
 	float dist;
 	int scrx, scry;
 	int hw=w>>1, hh=h>>1;
-	Project2D(x, y, z, &dist, scrx, scry);
+	Project2D(x, y, z, scrx, scry, &dist);
 	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf_w-hw || scry>=vxrend_framebuf_h-hh || dist<1.0 || dist==typeof(dist).infinity)
 		return;
 	Vox_DrawRect2D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col, dist);
@@ -558,11 +618,12 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, al
 			return;
 		if(!spr.xdensity || !spr.ydensity || !spr.zdensity)
 			return;
-		}
+	}
 	immutable uint blockadvance=cast(uint)(modeldist*modeldist/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0f)+1;
-	immutable int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
-	immutable float KVRectW=(cast(float)vxrend_framebuf_w)/2.0f*XFOV_Ratio*2.0f, KVRectH=(cast(float)vxrend_framebuf_h)/2.0f*YFOV_Ratio*2.0f;
 	immutable float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
+	immutable int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
+	immutable float KVRectW=(cast(float)screen_w)/2.0f*XFOV_Ratio*2.0f*blockadvance*sprdensity;
+	immutable float KVRectH=(cast(float)screen_h)/2.0f*YFOV_Ratio*2.0f*blockadvance*sprdensity;
 	uint color_mod_alpha, color_mod_r, color_mod_g, color_mod_b;
 	immutable uint fog_color_mod_r=(VoxlapInterface.fogcol>>16)&255, fog_color_mod_g=(VoxlapInterface.fogcol>>8)&255, fog_color_mod_b=(VoxlapInterface.fogcol)&255;
 	immutable float inv_maxscandist=1.0/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*255.0;
@@ -600,9 +661,10 @@ void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, al
 				}*/
 				int screenx, screeny;
 				immutable float renddist=Vox_Project2D(fnx, fnz, fny, &screenx, &screeny);
-				if(renddist<0.0f || isNaN(renddist))
+				if(renddist<0.0f || isNaN(renddist) || renddist>Current_Visibility_Range)
 					continue;
-				immutable int w=cast(int)(KVRectW*sprdensity/renddist)+1, h=cast(int)(KVRectH*sprdensity/renddist)+1;
+				immutable float inv_renddist=1.0/renddist;
+				immutable int w=cast(int)(KVRectW*inv_renddist)+1, h=cast(int)(KVRectH*inv_renddist)+1;
 				screenx-=w>>1; screeny-=h>>1;
 				if(screenx+w<0 || screeny+h<0 || screenx>=screen_w || screeny>=screen_h){
 					continue;
@@ -674,9 +736,39 @@ void Renderer_DrawRect2D(int xpos, int ypos, int w, int h, uint col, float dist)
 	}
 }
 
-void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, uint color, uint alpha, float dist){
+//x^2+y^2=w^2+h^2
+SDL_Surface *__SmokeCircle_Generate(int w, int h){
+	int hw=w/2, hh=h/2;
+	SDL_Surface *srfc=SDL_CreateRGBSurface(0, w, h, 32, 0, 0, 0, 0);
+	for(int x=-hw; x<hw; x++){
+		for(int y=-hh; y<hh; y++){
+			if(x*x*2+y*y*2<hw*hw+hh*hh){
+				*Pixel_Pointer(srfc, x+hw, y+hh)=0xffffffff;
+			}
+			else{
+				*Pixel_Pointer(srfc, x+hw, y+hh)=0x00000000;
+			}
+		}
+	}
+	return srfc;
+}
+
+private RendererTexture_t smoke_circle_tex;
+private immutable uint smoke_circle_tex_w=1024, smoke_circle_tex_h=1024;
+private struct RendererSmokeCircleQueue_t{
+	SDL_Rect rect;
+	union{
+		uint icol;
+		ubyte[4] bcol;
+	}
+	ubyte alpha;
+}
+private RendererSmokeCircleQueue_t[] RendererSmokeCircleQueue;
+
+
+void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, uint color, uint alpha, immutable float dist){
 	int sx, sy;
-	if(!Project2D(xpos, ypos, zpos, &dist, sx, sy) || !Smoke_Enabled)
+	if(!Project2D(xpos, ypos, zpos, sx, sy))
 		return;
 	if(dist>VoxlapInterface.maxscandist)
 		return;
@@ -686,8 +778,6 @@ void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, ui
 	if(renderxpos+w<0 || renderypos+h<0 || renderxpos>=fb_w+w || renderypos>=fb_h+h)
 		return;
 	immutable uint neg_alpha=255-alpha;
-	uint *pty=cast(uint*)((cast(ubyte*)(vxrend_framebuf_pixels))+(renderxpos<<2)+(renderypos*vxrend_framebuf_pitch));
-	float *zbufptr=cast(float*)((cast(ubyte*)pty)+VoxlapInterface.zbufoff);
 	immutable uint cr=((color>>16)&255)*alpha, cg=((color>>8)&255)*alpha, cb=((color>>0)&255)*alpha;
 	immutable int pow_r=radius*radius;
 	immutable int min_y=renderypos<0 ? -renderypos : 0, max_y=renderypos+h<fb_h ? h : fb_h-renderypos-1;
@@ -698,20 +788,41 @@ void Renderer_DrawSmokeCircle(float xpos, float ypos, float zpos, int radius, ui
 		return;
 	if(dist<.1)
 		return;
+	uint *pty=cast(uint*)((cast(ubyte*)(vxrend_framebuf_pixels))+(renderxpos<<2)+(renderypos*vxrend_framebuf_pitch));
+	float *zbufptr=cast(float*)((cast(ubyte*)pty)+VoxlapInterface.zbufoff);
+	immutable uint uiradius=radius;
+	if(smoke_circle_tex){
+		immutable uint[2][] __check_zbuf_pos=[
+			[0u, 0u], [uiradius*2, 0u], [0u, uiradius*2u], [uiradius*2u, uiradius*2u], [uiradius, uiradius]
+		];
+		bool __no_zbuf_needed=true;
+		foreach(pos; __check_zbuf_pos){
+			if(zbufptr[renderxpos+pos[0]+(((renderypos+pos[1])*fb_w)>>2)]<dist){
+				__no_zbuf_needed=false;
+				break;
+			}
+		}
+		if(__no_zbuf_needed){
+			RendererSmokeCircleQueue_t c;
+			c.rect=SDL_Rect(renderxpos-radius, renderypos, radius*2, radius*2); c.icol=color; c.alpha=to!ubyte(alpha);
+			RendererSmokeCircleQueue~=c;
+			return;
+		}
+	}
 	immutable uint fb_p=vxrend_framebuf_pitch;
 	for(int y=min_y; y<max_y;++y){
 		if(y<min_y)
 			continue;
-		int cy=y-radius;
-		int sqhwidth=pow_r-cy*cy;
+		immutable int cy=y-uiradius;
+		immutable int sqhwidth=pow_r-cy*cy;
 		if(sqhwidth<=0)
 			continue;
-		immutable int hwidth=to!int(sqrt(to!float(sqhwidth)));
+		immutable int hwidth=int_sqrt!int(sqhwidth);
 		//immutable int lwidth=min(hwidth, renderxpos), rwidth=min(hwidth, min_w);
 		immutable int lwidth=bitwise_min(hwidth, renderxpos), rwidth=bitwise_min(hwidth, min_w);
 		for(int x=-lwidth; x<rwidth; ++x){
 			if(dist<zbufptr[x]){
-				zbufptr[x]=dist;
+				//zbufptr[x]=dist;
 				pty[x]=0xff000000 | (((((pty[x]>>16)&255)*neg_alpha+cr)>>8)<<16) |
 				(((((pty[x]>>8)&255)*neg_alpha+cg)>>8)<<8) | (((pty[x]&255)*neg_alpha+cb)>>8);
 			}
@@ -728,6 +839,7 @@ uint ScopeTextureWidth=0, ScopeTextureHeight=0;
 auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, MenuElement_t *scope_picture, float xzoom, float yzoom){
 	float scope_dist;
 	int[2] scope_2D_pos=Project2D(scope_pos.x, scope_pos.y, scope_pos.z, &scope_dist);
+	scope_2D_pos[]=scope_2D_pos[]*[cast(int)ScreenXSize, cast(int)ScreenYSize]/[vxrend_framebuf_w, vxrend_framebuf_h];
 	immutable  uint scope_xsize=cast(uint)(scope_picture.xsize/scope_dist), scope_ysize=cast(uint)(scope_picture.ysize/scope_dist);
 	scope_2D_pos[0]-=scope_xsize>>1; scope_2D_pos[1]-=to!int(scope_ysize*.3);
 	struct return_type{
@@ -780,7 +892,7 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 		float powdist=pow_w-circle_x*circle_x;
 		if(powdist<0.0f) //Hack to fix some float bug that makes pow_w<circle_x*circle_x despite the numbers being equal
 			powdist=0.0f;
-		immutable uint width=to!uint(sqrt(powdist))*2;
+		immutable uint width=(cast(uint)sqrt(powdist))<<1;
 		immutable uint sx=(scope_xsize-width)>>1;
 		if(sx){
 			scope_surface_ptr[0..sx]=0;
