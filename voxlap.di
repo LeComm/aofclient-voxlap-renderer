@@ -29,7 +29,7 @@ void setcube(int, int, int, int);
 void Vox_Calculate_2DFog(ubyte*, float, float);
 
 
-float Vox_Project2D(float, float, float, int*, int*);
+float Vox_Project2D(immutable float, immutable float, immutable float, int*, int*);
 int Vox_DrawRect2D(int, int, uint, uint, uint, float);
 
 vx5_interface *Vox_GetVX5();

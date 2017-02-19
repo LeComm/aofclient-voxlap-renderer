@@ -1,2 +1,2 @@
 #!/bin/bash
-gdc *.d *.di -g -Wl,-ldl -Wl,-L/usr/local/lib -Wl,-lslang voxlap5.a -omain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d
+gdc *.d *.di -Ofast -march=native -mmmx -msse -msse2 -msse3 -g -Wl,-ldl -Wl,-L/usr/local/lib -Wl,-lslang ./aofclient-voxlap-renderer/*.d ./aofclient-voxlap-renderer/*.di ./aofclient-voxlap-renderer/voxlap5.a -omain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d
