@@ -256,7 +256,7 @@ struct vx5_interface
 		/*For example min=8,max=12 permits only planes 8,9,10,11 to draw*/
 	long xplanemin, xplanemax;
 	
-	/*Stuff added by LeCom*/
+	/*Stuff added by lecom*/
 	/*0.0 - 1.0*/
 	float KV6_Darkness;
 	signed int zbufoff;

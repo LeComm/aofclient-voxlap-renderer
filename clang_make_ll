@@ -1,2 +1,3 @@
 #!/bin/bash
-clang -c -I./include -emit-llvm -fslp-vectorize-aggressive -S -Ofast -mmmx -msse -msse2 -msse3 voxlap5.c kplib.c
+clang -c -I./include -emit-llvm -fslp-vectorize-aggressive -S -Ofast -flto -mmmx -msse -msse2 -msse3 voxlap5.c -o voxlap5.ll
+clang -c -I./include -emit-llvm -fslp-vectorize-aggressive -S -Ofast -flto -mmmx -msse -msse2 -msse3 kplib.c -o kplib.ll
