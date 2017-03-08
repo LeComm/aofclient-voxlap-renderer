@@ -24,13 +24,15 @@ import vector;
 import ui;
 import renderer_templates;
 
-alias RendererTexture_t=SDL_Texture *;
-uint Renderer_WindowFlags=0;
-immutable float Renderer_SmokeRenderSpeed=.75;
+public uint Renderer_WindowFlags=0;
+public alias RendererTexture_t=SDL_Texture *;
+public immutable float Renderer_SmokeRenderSpeed=.4+.35*Program_Is_Optimized;
 
-dpoint3d RenderCameraPos, RenderCameraRot;
-dpoint3d Cam_ist, Cam_ihe, Cam_ifo;
-vx5_interface *VoxlapInterface;
+private Vector_t!(3, real) RenderCameraPos, RenderCameraRot;
+private Vector_t!(3, real) RenderCamera_VForward, RenderCamera_VSide, RenderCamera_VUp;
+private register_t hframebuf_w, hframebuf_h;
+private dpoint3d Cam_ipo, Cam_ist, Cam_ihe, Cam_ifo;
+private vx5_interface *VoxlapInterface;
 
 SDL_Surface *vxrend_framebuf=null;
 int *vxrend_framebuf_pixels;
@@ -55,7 +57,6 @@ ubyte[] Fog_AlphaValues;
 uint Fog_AlphaColorComponent1, Fog_AlphaColorComponent2;
 
 float RendererBrightness=1.0f;
-
 float Renderer_BaseQuality=1.0f;
 
 void Renderer_Init(){
@@ -73,8 +74,24 @@ void Renderer_Init(){
 
 void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, Config_Read!bool("anti_aliasing") ? "1" : "0");
-	if(!scrn_renderer)
+	if(!scrn_renderer){
+		if(Config_Read!string("videodriver")!="auto")
+			SDL_SetHint(SDL_HINT_RENDER_DRIVER, toStringz(Config_Read!string("videodriver")));
+		/*int drivers=SDL_GetNumRenderDrivers();
+		if(drivers>0){
+			SDL_RendererInfo[] renderer_info;
+			renderer_info.length=drivers;
+			writeflnlog("Available render drivers:");
+			for(uint i=0; i<renderer_info.length; i++){
+				SDL_GetRenderDriverInfo(i, &renderer_info[i]);
+				writeflnlog("	%s", fromStringz(renderer_info[i].name));
+			}
+		}
+		else{
+			writeflnerr("Failed listing avilable SDL render drivers: %s", fromStringz(SDL_GetError()));
+		}*/
 		scrn_renderer=SDL_CreateRenderer(scrn_window, -1, (Config_Read!bool("hwaccel") ? SDL_RENDERER_ACCELERATED : SDL_RENDERER_SOFTWARE) | SDL_RENDERER_PRESENTVSYNC*Config_Read!bool("vsync"));
+	}
 	bool new_framebuf=!vxrend_framebuf;
 	if(vxrend_framebuf){
 		if(vxrend_framebuf.w!=screen_xsize || vxrend_framebuf.h!=screen_ysize){
@@ -91,6 +108,25 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	}
 	//SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_BLEND);
 	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, vxrend_framebuf_w, vxrend_framebuf_h);
+}
+
+float XFOV_Ratio=1.0f, YFOV_Ratio=1.0f;
+void Renderer_SetCamera(real xrotation, real yrotation, real tilt, real xfov, real yfov, real xpos, real ypos, real zpos){
+	RenderCameraPos=typeof(RenderCameraPos)(xpos, ypos, zpos);
+	RenderCameraRot=typeof(RenderCameraPos)(xrotation, yrotation, tilt);
+	XFOV_Ratio=45.0f/xfov; YFOV_Ratio=45.0f/yfov;
+	auto rot=typeof(RenderCamera_VForward)(xrotation, yrotation, tilt);
+	RenderCamera_VForward=typeof(RenderCamera_VForward)(degcos(rot.x)*degcos(rot.y), degsin(rot.y), degsin(rot.x)*degcos(rot.y)).normal();
+	RenderCamera_VSide=-RenderCamera_VForward.cross(typeof(RenderCamera_VSide)(0.0, -1.0, 0.0)).normal()*vxrend_framebuf_w*45.0/xfov;
+	RenderCamera_VUp=RenderCamera_VSide.cross(RenderCamera_VForward).normal()*vxrend_framebuf_w*45.0/yfov;
+	hframebuf_w=vxrend_framebuf_w>>>1; hframebuf_h=vxrend_framebuf_h>>>1;
+	__Renderer_SetCam();
+}
+
+void __Renderer_SetCam(){
+	Vox_ConvertToEucl(RenderCameraRot.x+90.0f, RenderCameraRot.y, RenderCameraRot.z, &Cam_ist, &Cam_ihe, &Cam_ifo);
+	Cam_ipo.x=RenderCameraPos.x; Cam_ipo.y=RenderCameraPos.z; Cam_ipo.z=RenderCameraPos.y;
+	setcamera(&Cam_ipo, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
 }
 
 void Renderer_SetQuality(float quality){
@@ -114,8 +150,6 @@ void Renderer_SetBlockFaceShading(Vector3_t shading){
 void Renderer_SetBrightness(float brightness){
 	RendererBrightness=brightness;
 }
-
-uint surfaceconv=0, textureupload=0;
 
 RendererTexture_t Renderer_NewTexture(uint xsize, uint ysize, bool streaming_texture=false){
 	if(!streaming_texture)
@@ -174,8 +208,7 @@ void Renderer_DrawVoxels(){
 		}
 	}
 	VoxlapInterface.anginc=Renderer_BaseQuality+RendererBlurAnginc;
-	Vox_ConvertToEucl(RenderCameraRot.x+90.0f, RenderCameraRot.y, 0, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
+	__Renderer_SetCam();
 	voxsetframebuffer(vxrend_framebuf_pixels, vxrend_framebuf_pitch, vxrend_framebuf_w, vxrend_framebuf_h);
 	opticast();
 	/*VoxlapInterface.zbufoff+=vxrend_framebuf_w*4/2;
@@ -267,15 +300,6 @@ void Renderer_FinishRendering(){
 void Renderer_StartRendering(bool Render_3D){
 }
 
-float XFOV_Ratio=1.0f, YFOV_Ratio=1.0f;
-void Renderer_SetCamera(float xrotation, float yrotation, float tilt, float xfov, float yfov, float xpos, float ypos, float zpos){
-	RenderCameraPos.x=xpos; RenderCameraPos.y=zpos; RenderCameraPos.z=ypos;
-	RenderCameraRot.x=xrotation; RenderCameraRot.y=yrotation; RenderCameraRot.z=tilt;
-	Vox_ConvertToEucl(xrotation+90.0f, yrotation, tilt, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	YFOV_Ratio=45.0f/yfov; XFOV_Ratio=45.0f/xfov;
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
-}
-
 void Renderer_SetFog(uint fogcolor, uint fogrange){
 	if(fogrange!=Fog_AlphaValues.length){
 		Fog_AlphaValues.length=fogrange;
@@ -288,18 +312,25 @@ void Renderer_SetFog(uint fogcolor, uint fogrange){
 	VoxlapInterface.maxscandist=fogrange;
 }
 
-void Renderer_FillRect(SDL_Rect *rct, ubyte[4] *color){
+void Renderer_FillRect2D(SDL_Rect *rct, ubyte[4] *color){
+	if((*color)[3]){
+		SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_BLEND);
+	}
 	SDL_SetRenderDrawColor(scrn_renderer, (*color)[0], (*color)[1], (*color)[2], (*color)[3]);
 	SDL_RenderFillRect(scrn_renderer, rct);
+	if((*color)[3]){
+		SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_NONE);
+	}
 }
 
-void Renderer_FillRect(SDL_Rect *rct, uint color){
-	if((color>>24)&255)
+void Renderer_DrawLine2D(int x1, int y1, int x2, int y2, ubyte[4] *color){
+	if((*color)[3]){
 		SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_BLEND);
-	SDL_SetRenderDrawColor(scrn_renderer, (color>>16)&255, (color>>8)&255, (color)&255, (color>>24)&255);
-	SDL_RenderFillRect(scrn_renderer, rct);
-	if((color>>24)&255)
+	}
+	SDL_SetRenderDrawColor(scrn_renderer, (*color)[0], (*color)[1], (*color)[2], (*color)[3]);
+	SDL_RenderDrawLine(scrn_renderer, x1, y1, x2, y2);	if((*color)[3]){
 		SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_NONE);
+	}
 }
 
 //NOTE: It's ok if you don't even plan on implementing blur in your renderer if it's some 100% CPU-based scrap that would only get lagged down
@@ -427,93 +458,16 @@ RendererParticleSize_t[3] Renderer_GetParticleSize(float xsize, float ysize, flo
 	return [to!uint(sqrt(xsize*xsize*.5+zsize*zsize*.5)*ScreenXSize*.25), to!uint(ysize*ScreenYSize/3.0), 0];
 }
 
-enum ProjectionTypes{
-	VoxlapProjection, WeirdMatrixStuffThatDoesntWorkForShit, RotationAndWeakPerspective, ScreenPlane
+version(DigitalMars){
+	@nogc pragma(inline, true):
 }
-
-immutable ProjectionTypes ProjectionType=ProjectionTypes.VoxlapProjection;
-
-static if(ProjectionType==ProjectionTypes.WeirdMatrixStuffThatDoesntWorkForShit){
-
-dpoint3d last_camera_rot;
-QMatrix_t mult_matrix;
-
-float __Project2D(float xpos, float ypos, float zpos, int *scrx, int *scry){
-	immutable float z_near=float.min_normal, z_far=VoxlapInterface.maxscandist;
-	//Vector3_t dst=Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y)+Vector3_t(RenderCameraRot.y, RenderCameraRot.x, 0.0).RotationAsDirection()*2.0;
-	//xpos=dst.x; ypos=dst.y; zpos=dst.z;
-	if(RenderCameraRot!=last_camera_rot){
-		QMatrix_t projection_mat=[
-			[cast(double)atan(90.0*.5*PI/180.0), 0.0, 0.0, 0.0],
-			[0.0, cast(double)atan(90.0*.5*PI/180.0), 0.0, 0.0],
-			[0.0, 0.0, -(z_far+z_near)/(z_far-z_near)-1.0, -2.0*(z_near*z_far)/(z_far-z_near)],
-			[0.0, 0.0, -1.0, 0.0]
-		];
-		immutable float xrot=-RenderCameraRot.x, yrot=RenderCameraRot.y;
-		Vector3_t forward=Vector3_t(degcos(xrot)*degcos(yrot), degsin(yrot), degsin(xrot)*degcos(yrot));
-		QMatrix_t lookat_mat=GluLookAt_Matrix(forward);
-		mult_matrix=lookat_mat*projection_mat;
-		last_camera_rot=RenderCameraRot;
-	}
-	Vector4_t dist=Vector4_t(xpos-RenderCameraPos.x, ypos-RenderCameraPos.z, zpos-RenderCameraPos.y, 1.0f);
-	Vector4_t coords=mult_matrix*dist;
-	coords.elements[0..3]/=coords.w;
-	*scrx=cast(int)(coords.x*vxrend_framebuf_w/2/coords.z+vxrend_framebuf_w/2); *scry=cast(int)(-coords.y*vxrend_framebuf_h/2/coords.z+vxrend_framebuf_h/2);
-	return (Vector3_t(xpos, ypos, zpos)-CameraPos).length;
-}
-
-QMatrix_t GluLookAt_Matrix(Vector3_t forward, Vector3_t up_vector=Vector3_t(0.0, -1.0, 0.0)){
-	Vector3_t side=(forward.cross(up_vector)).normal();
-	Vector3_t up=side.cross(forward).normal();
-	QMatrix_t rotation_mat=[
-		[side[0], side[1], side[2], 0.0],
-		[up[0], up[1], up[2], 0.0],
-		[forward[0], forward[1], forward[2], 0.0],
-		[0.0, 0.0, 0.0, 1.0]
-	];
-	return rotation_mat;
-}
-
-}
-
-static if(ProjectionType==ProjectionTypes.VoxlapProjection){
-nothrow float __Project2D(immutable in float xpos, immutable in float ypos, immutable in float zpos, out int scrx, out int scry){
-	return Vox_Project2D(xpos, zpos, ypos, &scrx, &scry);
-}
-
-};
-
-static if(ProjectionType==ProjectionTypes.RotationAndWeakPerspective){
-	float __Project2D(float xpos, float ypos, float zpos, int *scrx, int *scry){
-		Vector3_t projectpos=Vector3_t(xpos, ypos, zpos);
-		Vector3_t campos=Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y);
-		projectpos=campos+Players[LocalPlayerID].dir*5.0;
-		Vector3_t dist=projectpos-campos;
-		//y ?? ??
-		Vector3_t xrdist=dist.rotate_raw(Vector3_t(0.0, RenderCameraRot.x, 0.0))/dist.length;
-		Vector3_t yrdist=dist.rotate_raw(Vector3_t(0.0, 0.0, -RenderCameraRot.y))/dist.length;
-		writeflnlog("%s", yrdist);
-		*scrx=cast(int)(((xrdist.x/(1.0+xrdist.z))*.5+.5)*vxrend_framebuf_w);
-		*scry=cast(int)(((yrdist.y/(1.0+yrdist.z))*.5+.5)*vxrend_framebuf_h);
-		return 10.0;
-	}
-}
-
-static if(ProjectionType==ProjectionTypes.ScreenPlane){
-
-dpoint3d last_camera_rot;
-Vector3_t plane_start;
-Vector3_t topleft_p, topright_p, leftbottom_p;
-float __Project2D(float xpos, float ypos, float zpos, int *scrx, int *scry){
-	if(RenderCameraRot!=last_camera_rot){
-		last_camera_rot=RenderCameraRot;
-		Vector3_t campos=Vector3_t(RenderCameraPos.x, RenderCameraPos.z, RenderCameraPos.y);
-		plane_start=campos+Vector3_t(RenderCameraRot.y, RenderCameraRot.x, 0.0).RotationAsDirection();
-		topleft_p=campos+Vector3_t(RenderCameraRot.y-45.0, RenderCameraRot.x-45.0, 0.0).RotationAsDirection();
-	}
-	return -1.0;
-}
-
+nothrow T __Project2D(T)(Vector_t!(3, T) pos, out int scrx, out int scry){
+	auto vdist=pos-RenderCameraPos;
+	immutable T ddist=vdist.dot(RenderCamera_VForward);
+	auto tdist=vdist/ddist;
+	scrx=(cast(int)tdist.dot(RenderCamera_VSide))+hframebuf_w;
+	scry=(cast(int)tdist.dot(RenderCamera_VUp))+hframebuf_h;
+	return ddist;
 }
 
 void Renderer_Draw3DParticle(alias hole_side=false)(immutable in float x, immutable in float y, immutable in float z,
@@ -524,12 +478,12 @@ immutable in RendererParticleSize_t w, immutable in RendererParticleSize_t h, im
 	Project2D(x, y, z, scrx, scry, dist);
 	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf_w-hw || scry>=vxrend_framebuf_h-hh || dist<1.0 || dist>Fog_AlphaValues.length)
 		return;
-	immutable auto fog_color_mod_alpha=Fog_AlphaValues[cast(size_t)dist];
-	immutable auto inv_fog_color_mod_alpha=255-fog_color_mod_alpha;
-	immutable auto fog_ccomp1=((col&0x00ff00ff)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent1*fog_color_mod_alpha)>>>8;
-	immutable auto fog_ccomp2=((col&0x0000ff00)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent2*fog_color_mod_alpha)>>>8;
+	immutable fog_color_mod_alpha=Fog_AlphaValues[cast(size_t)dist];
+	immutable inv_fog_color_mod_alpha=255-fog_color_mod_alpha;
+	immutable fog_ccomp1=((col&0x00ff00ff)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent1*fog_color_mod_alpha)>>>8;
+	immutable fog_ccomp2=((col&0x0000ff00)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent2*fog_color_mod_alpha)>>>8;
 	col=(fog_ccomp1&0x00ff00ff) | (fog_ccomp2&0x0000ff00);
-	Renderer_DrawRect2D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist);
+	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist);
 }
 
 alias Renderer_DrawWireframe=Renderer_DrawSprite;
@@ -552,13 +506,22 @@ string __mixin_CTArgFuncList(alias funcstart, alias cnt)(){
 	return ret;
 }
 
+void Renderer_DrawSprite(SpriteRenderData_t *sprrend, Vector3_t pos, Vector3_t rotation){
+	Sprite_t spr;
+	spr.model=sprrend.model;
+	spr.pos=pos; spr.rot=rotation; spr.density=sprrend.size/Vector3_t(spr.model.size);
+	spr.color_mod=sprrend.color_mod; spr.replace_black=sprrend.replace_black;
+	spr.check_visibility=sprrend.check_visibility; spr.motion_blur=to!ubyte(sprrend.motion_blur*255.0);
+	return Renderer_DrawSprite(spr);
+}
+
 void Renderer_DrawSprite(in Sprite_t spr){
 	if(!Sprite_Visible(spr) && spr.check_visibility)
 		return;
 	Vector3_t sprpos=Vector3_t(spr.xpos, spr.ypos, spr.zpos);
 	float mindist=float.infinity;
 	ubyte brightness=0;
-	if(Config_Read!bool("flashes")){
+	if(Config_Read!bool("gun_flashes") || Config_Read!bool("explosion_flashes")){
 		foreach(ref flash; Flashes){
 			float dist=(flash.centre-sprpos).length;
 			if(dist<flash.radius && dist<mindist){
@@ -569,86 +532,86 @@ void Renderer_DrawSprite(in Sprite_t spr){
 	}
 	bool motion_blur=spr.motion_blur>0.0;
 	auto render_sprite_funcs=mixin(__mixin_CTArgFuncList!("&_Render_Sprite", 4)());
-	render_sprite_funcs[(spr.replace_black!=0)+((spr.color_mod!=0)<<1)+((brightness!=0)<<2)+(motion_blur<<3)](spr, brightness);
+	render_sprite_funcs[(spr.replace_black!=0)+((spr.color_mod!=0)<<1)+((brightness!=0)<<2)+(motion_blur<<3)](cast(immutable)spr, brightness);
 }
 
-nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, alias Brighten, alias Motion_Blur)(in Sprite_t spr, immutable in ubyte brightness){
-	uint blkx, blkz;
+version(DigitalMars){
+	@nogc pragma(inline, true):
+}
+nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color_Mod, alias Brighten, alias Motion_Blur)(immutable in Sprite_t spr, immutable in ubyte brightness){
 	float modeldist;
 	{
-		float xdiff=spr.xpos-RenderCameraPos.x, ydiff=spr.ypos-RenderCameraPos.z, zdiff=spr.zpos-RenderCameraPos.y;
 		//Change this and make it consider ydiff too when not using Voxlap
-		modeldist=sqrt(xdiff*xdiff+zdiff*zdiff)-(Vector3_t(spr.model.size)*spr.density).length*sqrt(2.0);
-		if(modeldist>VoxlapInterface.maxscandist)
+		modeldist=(RenderCameraPos-spr.pos).length-(Vector3_t(spr.model.size)*spr.density).length*sqrt(2.0);
+		if(modeldist>Fog_AlphaValues.length)
 			return;
 		if(!spr.xdensity || !spr.ydensity || !spr.zdensity)
 			return;
 	}
-	immutable uint blockadvance=cast(uint)(modeldist*modeldist/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*2.0f)*0+1;
-	immutable float sprdensity=Vector3_t(spr.xdensity, spr.ydensity, spr.zdensity).length;
+	immutable uint blockadvance=cast(uint)(modeldist*modeldist/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*VoxlapInterface.anginc*2.0f)+1;
 	immutable int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
-	immutable float KVRectW=(cast(float)screen_w)/2.0f*XFOV_Ratio*2.0f*blockadvance*sprdensity;
-	immutable float KVRectH=(cast(float)screen_h)/2.0f*YFOV_Ratio*2.0f*blockadvance*sprdensity;
-	Vector3_t renderrot=Vector3_t(spr.rhe, -(spr.rti+90.0), -spr.rst);
-	immutable Vector3_t rdens=Vector3_t(spr.density).rotate_raw(renderrot)*.5;
-	uint color_mod_r, color_mod_g, color_mod_b;
-	immutable uint fog_color_mod_r=(VoxlapInterface.fogcol>>16)&255,
-	fog_color_mod_g=(VoxlapInterface.fogcol>>8)&255, fog_color_mod_b=(VoxlapInterface.fogcol)&255;
+	immutable lod_vx_size=pow(blockadvance, .75);
+	immutable KVRectW=(cast(real)screen_w)/2.0*XFOV_Ratio*1.45*lod_vx_size*spr.density.length;
+	immutable KVRectH=(cast(real)screen_h)/2.0*YFOV_Ratio*1.45*lod_vx_size*spr.density.length;
+	immutable renderrot=Vector_t!(3, real)(spr.rot.x, -(spr.rot.y+90.0), -spr.rot.z);
 	immutable uint fog_color_component1=Fog_AlphaColorComponent1, fog_color_component2=Fog_AlphaColorComponent2;
-	immutable float inv_maxscandist=1.0/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*255.0;
+	immutable inv_maxscandist=1.0/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*255.0;
 	static if(Enable_Color_Mod){
 		immutable uint color_mod_alpha=(spr.color_mod>>24)&255;
 		immutable uint color_mod_inv_alpha=255-color_mod_alpha;
 		immutable uint color_mod_component1=(((spr.color_mod>>16)&255)<<16) | ((spr.color_mod>>0)&255)
 		, color_mod_component2=((spr.color_mod>>8)&255)<<8;
 	}
-	immutable float rot_sx=sin((spr.rhe)*PI/180.0f), rot_cx=cos((spr.rhe)*PI/180.0f);
-	immutable float rot_sy=sin(-(spr.rti+90.0f)*PI/180.0f), rot_cy=cos(-(spr.rti+90.0f)*PI/180.0f);
-	immutable float rot_sz=sin(-spr.rst*PI/180.0f), rot_cz=cos(-spr.rst*PI/180.0f);
-	immutable Vector3_t rotation_vcos=renderrot.cos(), rotation_vsin=renderrot.sin();
-	immutable Vector3_t sprite_centre=Vector3_t(spr.pos)+rdens;
-	immutable auto fog_alpha=cast(immutable typeof(Fog_AlphaValues))Fog_AlphaValues;
-	for(blkx=0; blkx<spr.model.xsize; blkx+=blockadvance){
-		immutable xoffset=(blkx-spr.model.xpivot+.5)*spr.xdensity;
-		for(blkz=0; blkz<spr.model.zsize; blkz+=blockadvance){
-			immutable zoffset=(blkz-spr.model.zpivot-.5)*spr.zdensity;
+	immutable fog_alpha=cast(immutable typeof(Fog_AlphaValues))Fog_AlphaValues;
+	const ubyte* framebuf=cast(const ubyte*)vxrend_framebuf_pixels;
+	immutable zbufoff=VoxlapInterface.zbufoff, pitch=vxrend_framebuf_pitch;
+	immutable auto campos=CameraPos;
+	ubyte visxbit=3, visybit=3, viszbit=3;
+	if(spr.model.voxels.length>3000){
+		if(spr.pos.x<CameraPos.x)
+			visxbit=RenderCamera_VForward.x>=0.0 ? 2 : 1;
+		if(spr.pos.x>CameraPos.x)
+			visxbit=RenderCamera_VForward.x>=0.0 ? 1 : 2;
+		if(spr.pos.y<CameraPos.y)
+			visybit=RenderCamera_VForward.y>=0.0 ? 2 : 1;
+		if(spr.pos.y>CameraPos.y)
+			visybit=RenderCamera_VForward.y>=0.0 ? 1 : 2;
+		if(spr.pos.z<CameraPos.z)
+			viszbit=RenderCamera_VForward.z>=0.0 ? 2 : 1;
+		if(spr.pos.z>CameraPos.z)
+			viszbit=RenderCamera_VForward.z>=0.0 ? 1 : 2;
+	}
+	immutable ubyte visbit=cast(ubyte)(visxbit | (visybit<<4) | (viszbit<<2) | ((spr.model.voxels.length>3000 ? 0 : 0xff)));
+	immutable minpos=(-spr.model.pivot*spr.density).rotate_raw(renderrot)+spr.pos;
+	immutable xdiff=(((Vector_t!(3, real)(spr.model.size.filter!(1, 0, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)*lod_vx_size/cast(real)spr.model.size.x;
+	immutable ydiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 1, 0)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)*lod_vx_size/cast(real)spr.model.size.y;
+	immutable zdiff=(((Vector_t!(3, real)(spr.model.size.filter!(0, 0, 1)())-spr.model.pivot)*spr.density).rotate_raw(renderrot)+spr.pos-minpos)*lod_vx_size/cast(real)spr.model.size.z;
+	auto vxpos=minpos+xdiff*.5+ydiff*.5+zdiff*.5;
+	for(uint blkx=0; blkx<spr.model.xsize; blkx+=blockadvance, vxpos+=xdiff){
+		Vector_t!(3, real) vzpos=0.0;
+		for(uint blkz=0; blkz<spr.model.zsize; blkz+=blockadvance, vzpos+=zdiff){
+			immutable vxzpos=vxpos+vzpos;
 			for(uint blkind=spr.model.offsets[blkx+blkz*spr.model.xsize];
-			blkind<spr.model.offsets[blkx+blkz*spr.model.xsize]+cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]; blkind+=blockadvance){
-				if(!spr.model.voxels[blkind].visiblefaces)
+			blkind<spr.model.offsets[blkx+blkz*spr.model.xsize]+cast(uint)spr.model.column_lengths[blkx+blkz*spr.model.xsize]; blkind+=blockadvance){	
+				if(!(spr.model.voxels[blkind].visiblefaces&visbit))
 					continue;
 				uint vxcolor=spr.model.voxels[blkind].color;
-				immutable ushort blky=spr.model.voxels[blkind].ypos;
-				static if(!Program_Is_Optimized){
-					float fnx=xoffset;
-					float fny=(blky-spr.model.ypivot+.5)*spr.ydensity;
-					float fnz=zoffset;
-					float rot_y=fny, rot_z=fnz, rot_x=fnx;
-					fny=rot_y*rot_cx - rot_z*rot_sx; fnz=rot_y*rot_sx + rot_z*rot_cx;
-					rot_x=fnx; rot_z=fnz;
-					fnz=rot_z*rot_cy - rot_x*rot_sy; fnx=rot_z*rot_sy + rot_x*rot_cy;
-					rot_x=fnx; rot_y=fny;
-					fnx=rot_x*rot_cz - rot_y*rot_sz; fny=rot_x*rot_sz + rot_y*rot_cz;
-					fnx+=spr.xpos; fny+=spr.ypos; fnz+=spr.zpos;
-				}
-				else{
-					immutable Vector3_t voxpos=((Vector3_t(blkx, blky, blkz)-spr.model.pivot)*spr.density).rotate_raw(rotation_vsin, rotation_vcos)+sprite_centre;
-				}
-				int screenx, screeny;
-				static if(!Program_Is_Optimized)
-					immutable float renddist=__Project2D(fnx, fny, fnz, screenx, screeny);
-				else
-					immutable float renddist=__Project2D(voxpos.x, voxpos.y, voxpos.z, screenx, screeny);
-				if(renddist<.01f || (renddist!=renddist) || renddist>=Fog_AlphaValues.length || screenx>=screen_w || screeny>=screen_h)
+				immutable auto voxpos=vxzpos+ydiff*spr.model.voxels[blkind].ypos;
+				immutable uint vxdist=cast(immutable uint)((Vector3_t(voxpos)-campos).sqlength);
+				if(vxdist>=fog_alpha.length*fog_alpha.length)
 					continue;
-				immutable float inv_renddist=1.0/renddist;
-				int w=cast(int)(KVRectW*inv_renddist)+1, h=cast(int)(KVRectH*inv_renddist)+1;
+				int screenx, screeny;
+				immutable auto renddist=__Project2D(voxpos, screenx, screeny);
+				if(renddist<.01f || (renddist!=renddist) || screenx>=screen_w || screeny>=screen_h)
+					continue;
+				immutable auto inv_renddist=1.0/renddist;
+				auto w=cast(int)(KVRectW*inv_renddist+.5)+1, h=cast(int)(KVRectH*inv_renddist+.5)+1;
 				screenx-=w>>1; screeny-=h>>1;
 				if(screenx<0){
 					if(w<-screenx)
 						continue;
 					w+=screenx; screenx=0;
 				}
-				else
 				if(screenx+w>=screen_w)
 					w=screen_w-screenx;
 				if(screeny<0){
@@ -656,9 +619,10 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 						continue;
 					h+=screeny; screeny=0;
 				}
-				else
 				if(screeny+h>=screen_h)
 					h=screen_h-screeny;
+				if(!w || !h)
+					continue;
 				static if(Enable_Black_Color_Replace){
 					vxcolor=((vxcolor&0x00ffffff)!=0x00040404) ? vxcolor : spr.replace_black;
 				}
@@ -675,7 +639,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					vxcolor=carr[0] | (carr[1]<<8) | carr[2]<<16;
 				}
 				{
-					immutable auto fog_color_mod_alpha=Fog_AlphaValues[cast(size_t)renddist];
+					immutable auto fog_color_mod_alpha=fog_alpha[cast(size_t)sqrt(cast(immutable real)vxdist)];
 					immutable auto inv_fog_color_mod_alpha=255-fog_color_mod_alpha;
 					immutable auto fog_ccomp1=((vxcolor&0x00ff00ff)*inv_fog_color_mod_alpha+fog_color_component1*fog_color_mod_alpha)>>>8;
 					immutable auto fog_ccomp2=((vxcolor&0x0000ff00)*inv_fog_color_mod_alpha+fog_color_component2*fog_color_mod_alpha)>>>8;
@@ -685,7 +649,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					vxcolor|=0xff000000;
 				else
 					vxcolor|=(255-spr.motion_blur)<<24;
-				Renderer_DrawRect2D!false(screenx, screeny, w, h, vxcolor, renddist);
+				Renderer_FillRect3D!false(screenx, screeny, w, h, vxcolor, renddist, framebuf, pitch, screen_w, screen_h, zbufoff);
 			}
 		}
 	}
@@ -694,7 +658,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 version(DigitalMars){
 	@nogc pragma(inline, true):
 }
-pure nothrow void Renderer_DrawRect2D(alias Check_Coords=true)(int xpos, int ypos, int w, int h, immutable in uint col, immutable in float dist,
+pure nothrow void Renderer_FillRect3D(alias Check_Coords=true)(int xpos, int ypos, int w, int h, immutable in uint col, immutable in float dist,
 const ubyte* pixels=cast(const ubyte*)vxrend_framebuf_pixels, 
 immutable in uint pitch=vxrend_framebuf_pitch, immutable in uint fb_w=vxrend_framebuf_w, immutable in uint fb_h=vxrend_framebuf_h,
 immutable in int zbufoff=VoxlapInterface.zbufoff){
@@ -709,22 +673,67 @@ immutable in int zbufoff=VoxlapInterface.zbufoff){
 			w=fb_w-xpos;
 		if(ypos+h>=fb_h)
 			h=fb_h-ypos;
+		if(!w || !h)
+			return;
 	}
-	uint *pixelptr=cast(uint*)(pixels+ypos*pitch+(xpos<<2));
+	uint *pixelptr=cast(uint*)(pixels+ypos*pitch+((xpos-1)<<2));
 	float *zbufptr=cast(float*)((cast(ubyte*)pixelptr)+zbufoff);
-	for(register_t y=0; y<h; y++){
-		register_t x=0;
-		//You can't make this faster, they said. "for(...){if(zbufptr[x]>=dist){...}}" is the fastest possible implementation, they said.
-		while(x<w){
-			while(zbufptr[x]>=dist && x<w){
-				zbufptr[x]=dist;
-				pixelptr[x]=col;
-				++x;
+	static if(!AssemblerCode_Enabled){
+		for(register_t y=h; y; y--){
+			register_t x=w;
+			//You can't make this faster, they said. "for(...){if(zbufptr[x]>=dist){...}}" is the fastest possible implementation, they said.
+			while(x){
+				while(zbufptr[x]>=dist && x){
+					zbufptr[x]=dist;
+					pixelptr[x]=col;
+					--x;
+				}
+				while(zbufptr[x]<dist && x){--x;}
 			}
-			while(zbufptr[x]<dist && x<w){++x;}
+			zbufptr=cast(float*)(cast(ubyte*)zbufptr+pitch);
+			pixelptr=cast(uint*)(cast(ubyte*)pixelptr+pitch);
 		}
-		zbufptr=cast(float*)(cast(ubyte*)zbufptr+pitch);
-		pixelptr=cast(uint*)(cast(ubyte*)pixelptr+pitch);
+	}
+	else{
+		//My horrible ASM code :d
+		//(btw fuck emms, apparently no compiler ever needs it (or apparently you don't need it for SSE/SSE2 stuff anymore) :d)
+		mixin(AssemblerCode_BlockStart~"
+			mov EAX, zbufptr;
+			mov EBX, pixelptr;
+			sub EBX, EAX;
+			mov ECX, h;
+			mov EDI, pitch;
+			mov ESI, w;
+			shl ESI, 2;
+			movd XMM1, dist;
+			movd XMM2, col;
+			Y_LOOP_START:;
+				mov EDX, EAX;
+				prefetchnta [EAX];
+				add EAX, ESI;
+				X_LOOP1_START:;
+					movd XMM0, [EAX];
+					ucomiss XMM0, XMM1;
+					jb X_LOOP2_JUMPIN;
+					X_LOOP1_JUMPIN:;
+					movd [EAX], XMM1;
+					movd [EAX+EBX], XMM2;
+				add EAX, -4;
+				cmp EAX, EDX;
+				jnz X_LOOP1_START;
+				jmp X_LOOP2_END;
+				X_LOOP2_START:;
+					movd XMM0, [EAX];
+					ucomiss XMM0, XMM1;
+					jae X_LOOP1_JUMPIN;
+					X_LOOP2_JUMPIN:;
+				add EAX, -4;
+				cmp EAX, EDX;
+				jnz X_LOOP2_START;
+				X_LOOP2_END:;
+				add EAX, EDI;
+			loop Y_LOOP_START;};
+		");
 	}
 }
 
@@ -791,6 +800,8 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 		];
 		bool __no_zbuf_needed=true;
 		foreach(pos; __check_zbuf_pos){
+			if(renderxpos+pos[0]>=fb_w || renderxpos+pos[0]<0 || renderypos+pos[1]>=fb_h || renderypos+pos[1]<0)
+				continue;
 			if(zbufptr[renderxpos+pos[0]+(((renderypos+pos[1])*fb_w)>>2)]<dist){
 				__no_zbuf_needed=false;
 				break;
@@ -803,6 +814,7 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 			return;
 		}
 	}
+	immutable uint color_ccomp1=(color&0x00ff00ff)*alpha, color_ccomp2=(color&0x0000ff00)*alpha;
 	immutable uint fb_p=vxrend_framebuf_pitch;
 	for(signed_register_t y=min_y; y<max_y;y++){
 		if(y<min_y)
@@ -814,15 +826,28 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 		immutable int hwidth=int_sqrt!int(sqhwidth);
 		//immutable int lwidth=min(hwidth, renderxpos), rwidth=min(hwidth, min_w);
 		immutable int lwidth=bitwise_min(hwidth, renderxpos), rwidth=bitwise_min(hwidth, min_w);
-		signed_register_t x=-lwidth;
+		//Safe, the second faster version needs approval in testing
+		/*signed_register_t x=-lwidth;
 		while(x<rwidth){
 			while(zbufptr[x]>=dist && x<rwidth){
 				zbufptr[x]=dist;
-				pty[x]=0xff000000 | (((((pty[x]>>16)&255)*neg_alpha+cr)>>8)<<16) |
-				(((((pty[x]>>8)&255)*neg_alpha+cg)>>8)<<8) | (((pty[x]&255)*neg_alpha+cb)>>8);
+				pty[x]=0xff000000 | ((((pty[x]&0x00ff00ff)*neg_alpha+color_ccomp1)>>>8)&0x00ff00ff)
+				| ((((pty[x]&0x0000ff00)*neg_alpha+color_ccomp2)>>>8)&0x0000ff00);
 				++x;
 			}
 			while(zbufptr[x]<dist && x<rwidth){++x;}
+		}*/
+		signed_register_t x=lwidth+rwidth;
+		auto zptr=&zbufptr[-lwidth];
+		auto pptr=&pty[-lwidth];
+		while(x){
+			while(zptr[x]>=dist && x){
+				zptr[x]=dist;
+				pptr[x]=0xff000000 | ((((pptr[x]&0x00ff00ff)*neg_alpha+color_ccomp1)>>>8)&0x00ff00ff)
+				| ((((pptr[x]&0x0000ff00)*neg_alpha+color_ccomp2)>>>8)&0x0000ff00);
+				--x;
+			}
+			while(zptr[x]<dist && x){--x;}
 		}
 		pty=cast(typeof(pty))((cast(ubyte*)pty)+fb_p);
 		zbufptr=cast(typeof(zbufptr))((cast(ubyte*)zbufptr)+fb_p);
@@ -834,11 +859,14 @@ SDL_Rect ScopeTextureBlitRect;
 SDL_Texture *ScopeTexture;
 uint ScopeTextureWidth=0, ScopeTextureHeight=0;
 auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, MenuElement_t *scope_picture, float xzoom, float yzoom){
+	__Renderer_SetCam();
 	float scope_dist;
 	int[2] scope_2D_pos=Project2D(scope_pos.x, scope_pos.y, scope_pos.z, &scope_dist);
 	scope_2D_pos[]=scope_2D_pos[]*[cast(int)ScreenXSize, cast(int)ScreenYSize]/[vxrend_framebuf_w, vxrend_framebuf_h];
-	immutable  uint scope_xsize=cast(uint)(scope_picture.xsize/scope_dist), scope_ysize=cast(uint)(scope_picture.ysize/scope_dist);
-	scope_2D_pos[0]-=scope_xsize>>1; scope_2D_pos[1]-=to!int(scope_ysize*.3);
+	xzoom*=1.0+scope_dist; yzoom*=1.0+scope_dist;
+	immutable uint scope_xsize=min(cast(uint)(scope_picture.xsize*3.0/(1.0+scope_dist)), ScreenXSize*9/10),
+	scope_ysize=min(cast(uint)(scope_picture.ysize*3.0/(1.0+scope_dist)), ScreenYSize*9/10);
+	scope_2D_pos[0]-=scope_xsize>>1; scope_2D_pos[1]=scope_ysize>>1;
 	struct return_type{
 		SDL_Rect dstrect;
 		SDL_Rect srcrect;
@@ -884,6 +912,7 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 	vxrend_framebuf_pixels=cast(int*)vxrend_framebuf.pixels; vxrend_framebuf_pitch=vxrend_framebuf.pitch;
 	vxrend_framebuf_w=vxrend_framebuf.w; vxrend_framebuf_h=vxrend_framebuf.h;
 	Renderer_StartRendering(true);
+	__Renderer_SetCam();
 	immutable float pow_w=scope_xsize*scope_xsize/2.0f/2.0f;
 	immutable float x_y_ratio=to!float(scope_xsize)/to!float(scope_ysize);
 	uint *scope_surface_ptr=cast(uint*)scope_texture_pixels;
@@ -894,7 +923,6 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 			powdist=0.0f;
 		immutable uint width=(cast(uint)sqrt(powdist))<<1;
 		immutable uint sx=(scope_xsize-width)>>>1;
-		//if(sx || 1){
 		{
 			scope_surface_ptr[0..sx]=0;
 			scope_surface_ptr[sx+width..scope_xsize]=0;
@@ -907,7 +935,7 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 	}
 	return_type ret;
 	ret.dstrect.w=scope_xsize; ret.dstrect.h=scope_ysize;
-	ret.dstrect.x=scope_2D_pos[0]; ret.dstrect.y=scope_2D_pos[1]-ret.dstrect.h/2;
+	ret.dstrect.x=scope_2D_pos[0]; ret.dstrect.y=scope_2D_pos[1];
 	ret.srcrect=lock_rect;
 	ret.scope_texture=ScopeTexture;
 	ret.scope_texture_width=ScopeTextureWidth; ret.scope_texture_height=ScopeTextureHeight;
