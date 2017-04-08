@@ -95,7 +95,7 @@ light is drawn on the few places that are bright*/
 
 /*Includes the height in the Z buffer*/
 #define __USE_ACCURATE_ZBUFFER__ 1
-#define __MIN_VOXEL_DIST__ 1.0
+#define __MIN_VOXEL_DIST__ 0.0
 
 /*In case it should compile without registers*/
 #define __REGISTER register
@@ -1359,7 +1359,7 @@ void gline (long leng, float x0, float y0, float x1, float y1)
 	char v1, v3, advance_v;
 	unsigned int d_int, prev_j;
 	unsigned int maxdmulruns, runs;
-	float sqr_dist=1;
+	float sqr_dist=0.1;
 	unsigned char fog_alpha=255, nfog_alpha=0;
 	unsigned int orfog, ogfog, obfog;
 	unsigned int rfog, gfog, bfog, mm_fog;
@@ -1386,7 +1386,7 @@ drawfwall:;
 			do{
 				--c->z1; fill_dat.col = *(long *)&v[((c->z1-v1)<<2)+4];
 #if (__USE_ACCURATE_ZBUFFER__!=0)
-				fill_dat.dist=sqrt(sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z))+__MIN_VOXEL_DIST__;
+				fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z)+__MIN_VOXEL_DIST__;
 #endif
 				d_int=(((unsigned char*)v)[((c->z1-v1)<<2)+7]>>__LSHADE_FACTOR__);
 				d_int+=HorizontalCubeShades[(prev_j<<1)+(gixy[prev_j]<0)];
@@ -1415,6 +1415,7 @@ drawfwall:;
 			} while (v1 != c->z1);
 			}
 		}
+		fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z)+__MIN_VOXEL_DIST__;
 
 		if (v == (char *)*(long *)ixy) goto drawflor;
 
@@ -1426,13 +1427,14 @@ drawfwall:;
 			do{
 				++c->z0;
 #if (__USE_ACCURATE_ZBUFFER__!=0)
-				fill_dat.dist=sqrt(sqr_dist+(c->z0-gipos.z)*(c->z0-gipos.z))+__MIN_VOXEL_DIST__;
+				fill_dat.dist=sqr_dist+(c->z0-gipos.z)*(c->z0-gipos.z)+__MIN_VOXEL_DIST__;
 #endif
 				fill_dat.col = *(long *)&v[((c->z0-v3)<<2)-4];
 				d_int=(((unsigned char*)v)[((c->z0-v3)<<2)-1]>>__LSHADE_FACTOR__);
 				d_int+=HorizontalCubeShades[(prev_j<<1)+(gixy[prev_j]>>31)];
 				__GLINE_PROCESS_COLOR__(fill_dat.col, d_int);
-				while (__BDMLREM(gylookup[c->z0],c->cx0,c->cy0,ogx))
+				int_fast64_t gyz=gylookup[c->z0];
+				while (__BDMLREM(gyz,c->cx0,c->cy0,ogx))
 				{
 					*c->i0++=fill_dat;
 					if (c->i0 > c->i1) goto deletez;
@@ -1446,7 +1448,6 @@ drawfwall:;
 drawceil:;
 		fill_dat.col=(*(long *)&v[-4]);
 #if (__USE_ACCURATE_ZBUFFER__!=0)
-		fill_dat.dist=sqrt(sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z))+__MIN_VOXEL_DIST__;
 #endif
 		d_int=(((unsigned char*)v)[-1]>>__LSHADE_FACTOR__)+CubeShadeBottom;
 		__GLINE_PROCESS_COLOR__(fill_dat.col, d_int);
@@ -1461,21 +1462,22 @@ drawflor:;
 		d_int=(((unsigned char*)v)[7]>>__LSHADE_FACTOR__)+CubeShadeTop;
 		__GLINE_PROCESS_COLOR__(fill_dat.col, d_int);
 #if (__USE_ACCURATE_ZBUFFER__!=0)
-		fill_dat.dist=sqrt(sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z))+__MIN_VOXEL_DIST__;
 #endif
 #if (__USE_MMX__!=0)
 		__m64 reg=*(__m64*)&fill_dat;
 #endif
-		int_fast64_t gyz=gylookup[c->z1];
-		while (__BDMLRS(gyz,c->cx1,c->cy1,gx))
 		{
+			int_fast64_t gyz=gylookup[c->z1];
+			while (__BDMLRS(gyz,c->cx1,c->cy1,gx))
+			{
 #if (__USE_MMX__!=0)
-			*(__m64*)c->i1--=reg;
+				*(__m64*)c->i1--=reg;
 #else
-			*c->i1--=fill_dat;
+				*c->i1--=fill_dat;
 #endif
-			if (c->i0 > c->i1) goto deletez;
-			c->cx1-=gi0; c->cy1-=gi1;
+				if (c->i0 > c->i1) goto deletez;
+				c->cx1-=gi0; c->cy1-=gi1;
+			}
 		}
 #if (__USE_MMX__!=0)
 		_mm_empty();
@@ -1486,16 +1488,18 @@ afterdelete:;
 		if (c < &cfasm[128])
 		{
 #if (USEZBUFFER!=0)
-			fill_dat.dist=PREC_DIV(gx);
+			fill_dat.dist=PREC_DIV(gx)+1.0;
 #if (__USE_ACCURATE_ZBUFFER__!=0)
-			sqr_dist=fill_dat.dist*fill_dat.dist;
+			sqr_dist=fill_dat.dist*fill_dat.dist-
+			((gipos.x-floor(gipos.x))*(gipos.x-floor(gipos.x))+(gipos.y-floor(gipos.y))*(gipos.y-floor(gipos.y)));
+			fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z);
 #else
 #endif
 #endif
 #if (__DRAW_FOG__!=0)
 			nfog_alpha=sqr_dist*invpwr_maxscandist; fog_alpha=255-nfog_alpha;
 #endif
-			/*ixy is the position on sptr, gixy is the direction vector*/
+			/*ixy is the position(index) on sptr, gixy is some kind of direction vector for pointer usage*/
 			ixy += gixy[j];
 			gpz[j] += gdz[j];
 			/*j indicates whether ray.x+=x or ray.y+=y should be done*/
@@ -1507,7 +1511,6 @@ afterdelete:;
 			/*gx is something like distance, gxmax is like max distance*/
 			/*all are multiplied by PREC*/
 			if (gx > gxmax) break;
-			/*ixy is the current position of the ray on the voxel RLE map*/
 			v = (char *)*(long *)ixy; c = ce;
 		}
 			//Find highest intersecting vbuf slab
@@ -1537,7 +1540,7 @@ afterdelete:;
 		}
 	}
 //------------------------------------------------------------------------
-	castdat skydat={vx5.fogcol, vx5.maxscandist}, *end_ptr;
+	castdat skydat={vx5.fogcol, vx5.maxscandist*vx5.maxscandist}, *end_ptr;
 #if (__USE_MMX__!=0)
 	__m64 reg=*(__m64*)&skydat;
 #endif

@@ -131,8 +131,8 @@ void __Renderer_SetCam(){
 	setcamera(&Cam_ipo, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
 }
 
-void Renderer_SetQuality(float quality){
-	Renderer_BaseQuality=quality;
+void Renderer_SetLOD(float lod){
+	Renderer_BaseQuality=lod;
 }
 
 float max_h_brightness=192.0f/2.0;
@@ -495,7 +495,7 @@ immutable in RendererParticleSize_t w, immutable in RendererParticleSize_t h, im
 	immutable fog_ccomp1=((col&0x00ff00ff)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent1*fog_color_mod_alpha)>>>8;
 	immutable fog_ccomp2=((col&0x0000ff00)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent2*fog_color_mod_alpha)>>>8;
 	col=(fog_ccomp1&0x00ff00ff) | (fog_ccomp2&0x0000ff00);
-	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist);
+	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist*dist);
 }
 
 alias Renderer_DrawWireframe=Renderer_DrawSprite;
@@ -683,7 +683,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					vxcolor|=0xff000000;
 				else
 					vxcolor|=(255-spr.motion_blur)<<24;
-				Renderer_SpriteFillRect3D(rect_start_x, rect_start_y, rect_end_x, rect_end_y, vxcolor, renddist, framebuf, pitch, screen_w, screen_h, zbufoff);
+				Renderer_SpriteFillRect3D(rect_start_x, rect_start_y, rect_end_x, rect_end_y, vxcolor, renddist*renddist, framebuf, pitch, screen_w, screen_h, zbufoff);
 			}
 		}
 	}
@@ -923,6 +923,7 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 	}
 	immutable uint color_ccomp1=(color&0x00ff00ff)*alpha, color_ccomp2=(color&0x0000ff00)*alpha;
 	immutable uint fb_p=vxrend_framebuf_pitch;
+	immutable sqdist=dist*dist;
 	for(signed_register_t y=min_y; y<max_y;y++){
 		if(y<min_y)
 			continue;
@@ -948,13 +949,13 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 		auto zptr=&zbufptr[-lwidth];
 		auto pptr=&pty[-lwidth];
 		while(x){
-			while(zptr[x]>=dist && x){
-				zptr[x]=dist;
+			while(zptr[x]>=sqdist && x){
+				zptr[x]=sqdist;
 				pptr[x]=0xff000000 | ((((pptr[x]&0x00ff00ff)*neg_alpha+color_ccomp1)>>>8)&0x00ff00ff)
 				| ((((pptr[x]&0x0000ff00)*neg_alpha+color_ccomp2)>>>8)&0x0000ff00);
 				--x;
 			}
-			while(zptr[x]<dist && x){--x;}
+			while(zptr[x]<sqdist && x){--x;}
 		}
 		pty=cast(typeof(pty))((cast(ubyte*)pty)+fb_p);
 		zbufptr=cast(typeof(zbufptr))((cast(ubyte*)zbufptr)+fb_p);
@@ -983,7 +984,6 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 	}
 	if(scope_2D_pos[0]+scope_xsize<0 || scope_2D_pos[1]+scope_ysize<0 || scope_2D_pos[0]>=ScreenXSize || scope_2D_pos[1]>=ScreenYSize)
 		return return_type();
-	//scope_2D_pos[]-=[cast(int)scope_xsize, cast(int)scope_ysize];
 	{
 		bool new_tex=false;
 		if(!ScopeTexture)

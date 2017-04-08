@@ -1,2 +1,0 @@
-#!/bin/bash
-gcc -shared -fPIC voxlap5.o kplib.o -o renderer.so
