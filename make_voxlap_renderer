@@ -1,0 +1,9 @@
+CC = /usr/bin/gcc
+CLANG = clang
+CFLAGS = -g -Ofast
+
+voxlap5.o: voxlap5.c
+	$(CC) $(CFLAGS) -march=native -mmmx -msse -msse2 -msse3 -c voxlap5.c -I./include
+
+voxlap5.ll: voxlap5.c
+	$(CLANG) $(CFLAGS) -mmmx -msse -msse2 -msse3 -c -I./include -emit-llvm -fslp-vectorize-aggressive -S -flto voxlap5.c -o voxlap5.ll

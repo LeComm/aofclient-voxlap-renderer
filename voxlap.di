@@ -11,7 +11,7 @@ int initvoxlap();
 int uninitvoxlap();
 void voxsetframebuffer(int*, int, int, int);
 void setcamera(dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *, float, float, float);
-void opticast();
+void opticast(uint, uint, uint, uint, void*);
 
 
 int Vox_vloadvxl(const char*, uint);

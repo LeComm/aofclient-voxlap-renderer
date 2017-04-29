@@ -1,3 +1,0 @@
-#!/bin/bash
-clang -c kplib.c voxlap5.c -I./include -g
-ar rcs voxlap5.a voxlap5.o kplib.o

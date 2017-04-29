@@ -1,7 +1,8 @@
 /**************************************************************************************************
  * ksnippits.h: Bit's of inline assembly Ken commonly used because the C compiler sucked          *
  **************************************************************************************************/
-
+// This file has been modified from Ken Silverman's original release
+//(Maybe it actually hasn't, but just in case)
 #pragma once
 
 	//Ericson2314's dirty porting tricks
@@ -42,12 +43,12 @@ static inline void dcossin (double a, double *c, double *s)
 	*s = sin(a);
 }
 
-static inline void ftol (float f, long *a)
+static inline void ftol (float f, int *a)
 {
 	*a = (long) f;
 }
 
-static inline void dtol (double d, long *a)
+static inline void dtol (double d, int *a)
 {
 	*a = (long) d;
 }
@@ -58,71 +59,71 @@ static inline double dbound (double d, double dmin, double dmax)
 	return BOUND(d, dmin, dmax);
 }
 
-static inline long mulshr16 (long a, long d)
+static inline int mulshr16 (int a, int d)
 {
 	return (long)(((int64_t)a * (int64_t)d) >> 16);
 }
 
-static inline long mulshr24 (long a, long d)
+static inline int mulshr24 (int a, int d)
 {
 	return (long)(((int64_t)a * (int64_t)d) >> 24);
 }
 
-static inline long mulshr32 (long a, long d)
+static inline int mulshr32 (int a, int d)
 {
 	return (long)(((int64_t)a * (int64_t)d) >> 32);
 }
 
-static inline int64_t mul64 (long a, long d)
+static inline int64_t mul64 (int a, int d)
 {
 	return (int64_t)a * (int64_t)d;
 }
 
-static inline long shldiv16 (long a, long b)
+static inline int shldiv16 (int a, int b)
 {
 	return (long)(((int64_t)a << 16) / (int64_t)b);
 }
 
-static inline long isshldiv16safe (long a, long b)
+static inline int isshldiv16safe (int a, int b)
 {
 	return ((uint32_t)((-abs(b) - ((-abs(a)) >> 14)))) >> 31;
 }
 
-static inline long umulshr32 (long a, long d)
+static inline int umulshr32 (int a, int d)
 {
 	return (long)(((uint64_t)a * (uint64_t)d) >> 32);
 }
 
-static inline long scale (long a, long d, long c)
+static inline int scale (int a, int d, int c)
 {
 	return (long)((int64_t)a * (int64_t)d / (int64_t)c);
 }
 
-static inline long dmulshr0 (long a, long d, long s, long t)
+static inline int dmulshr0 (int a, int d, int s, int t)
 {
 	return (long)((int64_t)a*(int64_t)d + (int64_t)s*(int64_t)t);
 }
 
-static inline long dmulshr22 (long a, long b, long c, long d)
+static inline int dmulshr22 (int a, int b, int c, int d)
 {
 	return (long)(((((int64_t)a)*((int64_t)b)) + (((int64_t)c)*((int64_t)d))) >> 22);
 }
 
 
 /*No idea why this isn't just #defined as memcpy and memset*/
-static inline void copybuf (void *s, void *d, long c)
+static inline void copybuf (void *s, void *d, int c)
 {
 	int i;
-	for (i = 0; i < c; i++)	((long *)d)[i] = ((long *)s)[i];
+	for (i = 0; i < c; i++)	((int *)d)[i] = ((int *)s)[i];
 }
 
-static inline void clearbuf (void *d, long c, long a)
+static inline void clearbuf (void *d, int c, int a)
 {
 	int i;
-	for (i = 0; i < c; i++) ((long *)d)[i] = a;
+	for (i = 0; i < c; i++) ((int *)d)[i] = a;
 }
 
-static inline unsigned long bswap (unsigned long a)
+static inline unsigned int bswap (unsigned int a)
 {
 	#if defined(__GNUC__)
 	return __builtin_bswap32(a);

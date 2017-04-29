@@ -186,6 +186,51 @@ void _Register_Lighting_BBox(int xpos, int ypos, int zpos){
 	updatebbox(xpos-1, zpos-1, ypos-1, xpos+1, zpos+1, ypos+1, 0);
 }
 
+extern(C) void *RenderThread_Func(void *arg){
+	RenderThread_t *thread=cast(RenderThread_t*)arg;
+	thread.Render(thread.fb_w, thread.fb_h);
+	pthread_exit(null);
+	return null;
+}
+
+
+version(POSIX){
+	import core.sys.posix.pthread;
+}
+else{
+	import windows_pthread;
+}
+extern(C) struct RenderThread_t{
+	double x1, x2, y1, y2;
+	uint fb_w, fb_h;
+	void *opticast_buf;
+	pthread_t thread;
+	this(double ix1, double ix2, double iy1, double iy2){
+		x1=ix1; x2=ix2; y1=iy1; y2=iy2; opticast_buf=null;
+	}
+	void Run(uint ifb_w, uint ifb_h){
+		fb_w=ifb_w; fb_h=ifb_h;
+		auto ret=pthread_create(&thread, cast(const(pthread_attr_t*))null, &RenderThread_Func, cast(void*)&this);
+		if(ret)
+			writeflnerr("Couldn't create thread");
+	}
+	void Render(uint ifb_w, uint ifb_h){
+		fb_w=ifb_w; fb_h=ifb_h;
+		opticast(to!uint(x1*fb_w), to!uint(x2*fb_w), to!uint(y1*fb_h), to!uint(y2*fb_h), &opticast_buf);
+	}
+	void Wait(){
+		void *dummy;
+		pthread_join(thread, &dummy);
+	}
+	void Uninit(){
+		import std.c.stdlib;
+		if(opticast_buf!=null)
+			free(opticast_buf);
+	}
+}
+
+RenderThread_t[] RenderThreads;
+
 version(DigitalMars){
 	@nogc pragma(inline, true):
 }
@@ -212,27 +257,46 @@ void Renderer_DrawVoxels(){
 			bdmg.UpdateVoxel();
 		}
 	}
-	VoxlapInterface.anginc=Renderer_BaseQuality+RendererBlurAnginc;
-	__Renderer_SetCam();
-	voxsetframebuffer(vxrend_framebuf_pixels, vxrend_framebuf_pitch, vxrend_framebuf_w, vxrend_framebuf_h);
-	opticast();
-	/*VoxlapInterface.zbufoff+=vxrend_framebuf_w*4/2;
-	Vox_ConvertToEucl(RenderCameraRot.x+90.0f, RenderCameraRot.y, 180.0*PI/180.0, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
-	voxsetframebuffer((vxrend_framebuf_pixels+vxrend_framebuf_w/2), vxrend_framebuf_pitch, vxrend_framebuf_w/2, vxrend_framebuf_h);
-	opticast();
-	VoxlapInterface.zbufoff-=vxrend_framebuf_w*4/2;
-	//for(int x=1; x<vxrend_framebuf_w/2; x++){
-		for(int y=1; y<vxrend_framebuf_h/2; y++){
-			immutable auto ind1=vxrend_framebuf_w/2-1+x+(y)*vxrend_framebuf_w, ind2=vxrend_framebuf_w/2-1+(vxrend_framebuf_w/2-x)+(vxrend_framebuf_h-y-1)*vxrend_framebuf_w;
-			swap(vxrend_framebuf_pixels[ind1], vxrend_framebuf_pixels[ind2]);
-			swap((cast(float*)((cast(ubyte*)(&vxrend_framebuf_pixels[ind1]))+VoxlapInterface.zbufoff))[0],
-			(cast(float*)((cast(ubyte*)(&vxrend_framebuf_pixels[ind2]))+VoxlapInterface.zbufoff))[0]);
+	{
+		VoxlapInterface.anginc=Renderer_BaseQuality+RendererBlurAnginc;
+		__Renderer_SetCam();
+		voxsetframebuffer(vxrend_framebuf_pixels, vxrend_framebuf_pitch, vxrend_framebuf_w, vxrend_framebuf_h);
+		import core.memory;
+		GC.disable();
+		uint CPU_Cores;
+		if(Config_Read!string("render_threads")!="auto"){
+			CPU_Cores=Config_Read!uint("render_threads");
 		}
-	//}
-	Vox_ConvertToEucl(RenderCameraRot.x+90.0f, RenderCameraRot.y, 0, &Cam_ist, &Cam_ihe, &Cam_ifo);
-	setcamera(&RenderCameraPos, &Cam_ist, &Cam_ihe, &Cam_ifo, vxrend_framebuf_w/2, vxrend_framebuf_h/2, vxrend_framebuf_w*XFOV_Ratio);
-	voxsetframebuffer(vxrend_framebuf_pixels, vxrend_framebuf_pitch, vxrend_framebuf_w/2, vxrend_framebuf_h);*/
+		else{
+			import std.parallelism;
+			CPU_Cores=totalCPUs;
+		}
+		CPU_Cores=max(CPU_Cores, 1);
+		if(RenderThreads.length!=CPU_Cores){
+			if(RenderThreads.length){
+				foreach(ref thread; RenderThreads)
+					thread.Uninit();
+			}
+			RenderThreads.length=CPU_Cores;
+			foreach(i; 0..RenderThreads.length){
+				RenderThreads[i]=RenderThread_t((cast(double)i)/RenderThreads.length, (cast(double)i+1)/RenderThreads.length, 0.0, 1.0);
+			}
+		}
+		static if(1){
+			foreach(ref thread; RenderThreads[0..$-1]){
+				thread.Run(vxrend_framebuf_w, vxrend_framebuf_h);
+			}
+			RenderThreads[$-1].Render(vxrend_framebuf_w, vxrend_framebuf_h);
+			foreach(ref thread; RenderThreads[0..$-1]){
+				thread.Wait();
+			}
+		}
+		else{
+			foreach(ref thread; RenderThreads)
+				thread.Render(vxrend_framebuf_w, vxrend_framebuf_h);
+		}
+		GC.enable();
+	}
 }
 
 void Renderer_Start2D(){
@@ -293,6 +357,8 @@ void Renderer_Finish2D(){
 }
 
 void Renderer_UnInit(){
+	foreach(ref thread; RenderThreads)
+		thread.Uninit();
 	uninitvoxlap();
 }
 
@@ -488,14 +554,14 @@ immutable in RendererParticleSize_t w, immutable in RendererParticleSize_t h, im
 	float dist;
 	signed_register_t scrx, scry, hw=w>>1, hh=h>>1;
 	Project2D(x, y, z, scrx, scry, dist);
-	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf_w-hw || scry>=vxrend_framebuf_h-hh || dist<1.0 || dist>Fog_AlphaValues.length)
+	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf_w-hw || scry>=vxrend_framebuf_h-hh || dist<1.0 || dist>=Fog_AlphaValues.length)
 		return;
 	immutable fog_color_mod_alpha=Fog_AlphaValues[cast(size_t)dist];
 	immutable inv_fog_color_mod_alpha=255-fog_color_mod_alpha;
 	immutable fog_ccomp1=((col&0x00ff00ff)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent1*fog_color_mod_alpha)>>>8;
 	immutable fog_ccomp2=((col&0x0000ff00)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent2*fog_color_mod_alpha)>>>8;
 	col=(fog_ccomp1&0x00ff00ff) | (fog_ccomp2&0x0000ff00);
-	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist*dist);
+	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist);
 }
 
 alias Renderer_DrawWireframe=Renderer_DrawSprite;
@@ -603,6 +669,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 	immutable xdiff=spr_edges[1]*lod_vx_size/cast(real)spr.model.size.x, ydiff=spr_edges[2]*lod_vx_size/cast(real)spr.model.size.y,
 	zdiff=spr_edges[3]*lod_vx_size/cast(real)spr.model.size.z;
 	Vector_t!(3, real) vxpos=minpos+xdiff*.5+ydiff*.5+zdiff*.5-RenderCameraPos;
+	immutable zbuf_conv=(cast(float)(1u<<30u))/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist);
 	for(uint blkx=0; blkx<spr.model.xsize; blkx+=blockadvance, vxpos+=xdiff){
 		Vector_t!(3, real) vzpos=0.0;
 		for(uint blkz=0; blkz<spr.model.zsize; blkz+=blockadvance, vzpos+=zdiff){
@@ -623,8 +690,9 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 			}
 			if(endrenddist<.01f || startrenddist<.01f || (startrenddist!=startrenddist) || (endrenddist!=endrenddist))
 				continue;
-			immutable screencoord_diff=Vector_t!(3, real)(endscreenx-startscreenx, endscreeny-startscreeny, endrenddist-startrenddist);
-			immutable screencoord_base=Vector_t!(3, real)(startscreenx, startscreeny, startrenddist);
+			immutable screencoord_diff=Vector_t!(4, real)(endscreenx-startscreenx, endscreeny-startscreeny, endrenddist-startrenddist,
+			pow2(endrenddist-startrenddist)*zbuf_conv);
+			immutable screencoord_base=Vector_t!(4, real)(startscreenx, startscreeny, startrenddist, pow2(startrenddist)*zbuf_conv);
 			immutable inv_row_end_mvy=1.0/max(row_end_mvy-row_start_mvy, 1);
 			immutable startvoxdist=Vector_t!(3, real)(vxzpos+ydiff*mvox[0].ypos).length;
 			immutable voxdistdiff=(Vector_t!(3, real)(vxzpos+ydiff*mvox[rowlen-1].ypos).length-startvoxdist)*inv_row_end_mvy;
@@ -683,7 +751,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					vxcolor|=0xff000000;
 				else
 					vxcolor|=(255-spr.motion_blur)<<24;
-				Renderer_SpriteFillRect3D(rect_start_x, rect_start_y, rect_end_x, rect_end_y, vxcolor, renddist*renddist, framebuf, pitch, screen_w, screen_h, zbufoff);
+				Renderer_SpriteFillRect3D(rect_start_x, rect_start_y, rect_end_x, rect_end_y, vxcolor, cast(uint)screencoord.w, framebuf, pitch, screen_w, screen_h, zbufoff);
 			}
 		}
 	}
@@ -693,27 +761,27 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 version(DigitalMars){
 	@nogc pragma(inline, true):
 }
-pure nothrow void Renderer_SpriteFillRect3D(
-signed_register_t xpos, signed_register_t ypos, signed_register_t xpos2, signed_register_t ypos2, immutable in uint col, immutable in float dist,
+nothrow void Renderer_SpriteFillRect3D(
+signed_register_t xpos, signed_register_t ypos, signed_register_t xpos2, signed_register_t ypos2, immutable in uint col, immutable in uint dist,
 const ubyte* pixels=cast(const ubyte*)vxrend_framebuf_pixels, 
 immutable in register_t pitch=vxrend_framebuf_pitch, immutable in register_t fb_w=vxrend_framebuf_w, immutable in register_t fb_h=vxrend_framebuf_h,
 immutable in signed_register_t zbufoff=VoxlapInterface.zbufoff){
 	uint *pixelptr=cast(uint*)(pixels+ypos*pitch+((xpos-1)<<2));
-	float *zbufptr=cast(float*)((cast(ubyte*)pixelptr)+zbufoff);
+	uint *zbufptr=cast(uint*)((cast(ubyte*)pixelptr)+zbufoff);
 	immutable w=xpos2-xpos, h=ypos2-ypos;
 	static if(!AssemblerCode_Enabled){
 		for(register_t y=h; y; y--){
 			register_t x=w;
-			//You can't make this faster, they said. "for(...){if(zbufptr[x]>=dist){...}}" is the fastest possible implementation, they said.
+			//You can't make this faster, they said. "for(x=0; x<w; x++){if(zbufptr[x]>=dist){*overwrite*}}" is the fastest possible implementation, they said.
 			while(x){
-				while(zbufptr[x]>=dist && x){
+				while(x && zbufptr[x]>=dist){
 					zbufptr[x]=dist;
 					pixelptr[x]=col;
 					--x;
 				}
-				while(zbufptr[x]<dist && x){--x;}
+				while(x && zbufptr[x]<dist){--x;}
 			}
-			zbufptr=cast(float*)(cast(ubyte*)zbufptr+pitch);
+			zbufptr=cast(uint*)(cast(ubyte*)zbufptr+pitch);
 			pixelptr=cast(uint*)(cast(ubyte*)pixelptr+pitch);
 		}
 	}
@@ -764,7 +832,7 @@ immutable in signed_register_t zbufoff=VoxlapInterface.zbufoff){
 version(DigitalMars){
 	@nogc pragma(inline, true):
 }
-pure nothrow void Renderer_FillRect3D(alias Check_Coords=true)(signed_register_t xpos, signed_register_t ypos, signed_register_t w, signed_register_t h, immutable in uint col, immutable in float dist,
+nothrow void Renderer_FillRect3D(alias Check_Coords=true)(signed_register_t xpos, signed_register_t ypos, signed_register_t w, signed_register_t h, immutable in uint col, immutable in float fdist,
 const ubyte* pixels=cast(const ubyte*)vxrend_framebuf_pixels, 
 immutable in uint pitch=vxrend_framebuf_pitch, immutable in uint fb_w=vxrend_framebuf_w, immutable in uint fb_h=vxrend_framebuf_h,
 immutable in int zbufoff=VoxlapInterface.zbufoff){
@@ -782,8 +850,9 @@ immutable in int zbufoff=VoxlapInterface.zbufoff){
 		if(!w || !h)
 			return;
 	}
+	immutable dist=cast(uint)(fdist*fdist*(cast(float)(1u<<30u))/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist));
 	uint *pixelptr=cast(uint*)(pixels+ypos*pitch+((xpos-1)<<2));
-	float *zbufptr=cast(float*)((cast(ubyte*)pixelptr)+zbufoff);
+	uint *zbufptr=cast(uint*)((cast(ubyte*)pixelptr)+zbufoff);
 	static if(!AssemblerCode_Enabled){
 		for(register_t y=h; y; y--){
 			register_t x=w;
@@ -796,8 +865,8 @@ immutable in int zbufoff=VoxlapInterface.zbufoff){
 				}
 				while(zbufptr[x]<dist && x){--x;}
 			}
-			zbufptr=cast(float*)(cast(ubyte*)zbufptr+pitch);
-			pixelptr=cast(uint*)(cast(ubyte*)pixelptr+pitch);
+			pixelptr=cast(typeof(pixelptr))(cast(ubyte*)pixelptr+pitch);
+			zbufptr=cast(typeof(zbufptr))(cast(ubyte*)zbufptr+pitch);
 		}
 	}
 	else{
@@ -897,10 +966,11 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 	if(dist<.1)
 		return;
 	uint *pty=cast(uint*)((cast(ubyte*)(vxrend_framebuf_pixels))+(renderxpos<<2)+((renderypos+min_y)*vxrend_framebuf_pitch));
-	float *zbufptr=cast(float*)((cast(ubyte*)pty)+VoxlapInterface.zbufoff);
+	uint *zbufptr=cast(uint*)((cast(ubyte*)pty)+VoxlapInterface.zbufoff);
 	int zbufdiff=VoxlapInterface.zbufoff;
 	void *pixels=vxrend_framebuf_pixels;
 	immutable uint uiradius=radius;
+	immutable sqdist=cast(uint)(dist*dist*(cast(float)(1u<<30u))/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist));
 	if(smoke_circle_tex){
 		immutable uint[2][] __check_zbuf_pos=[
 			[0u, 0u], [uiradius*2, 0u], [0u, uiradius*2u], [uiradius*2u, uiradius*2u], [uiradius, uiradius]
@@ -909,7 +979,7 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 		foreach(pos; __check_zbuf_pos){
 			if(renderxpos+pos[0]>=fb_w || renderxpos+pos[0]<0 || renderypos+pos[1]>=fb_h || renderypos+pos[1]<0)
 				continue;
-			if(zbufptr[renderxpos+pos[0]+(((renderypos+pos[1])*fb_w)>>2)]<dist){
+			if(zbufptr[renderxpos+pos[0]+(((renderypos+pos[1])*fb_w)>>2)]<sqdist){
 				__no_zbuf_needed=false;
 				break;
 			}
@@ -923,7 +993,6 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 	}
 	immutable uint color_ccomp1=(color&0x00ff00ff)*alpha, color_ccomp2=(color&0x0000ff00)*alpha;
 	immutable uint fb_p=vxrend_framebuf_pitch;
-	immutable sqdist=dist*dist;
 	for(signed_register_t y=min_y; y<max_y;y++){
 		if(y<min_y)
 			continue;

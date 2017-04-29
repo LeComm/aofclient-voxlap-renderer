@@ -1,2 +1,0 @@
-#!/bin/bash
-ldc2 -O5 -singleobj -release -inline ./aofclient-voxlap-renderer/voxlap5.a -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 ./aofclient-voxlap-renderer/*.d ./aofclient-voxlap-renderer/*.di *.d *.di -gc -L-L/usr/local/lib -L-lslang -ofmain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d

@@ -1,5 +1,5 @@
-/* VOXLAP engine by Ken Silverman (http://advsys.net/ken)
- This file has been modified from Ken Silverman's original release*/
+/* VOXLAP engine by Ken Silverman (http://advsys.net/ken)*/
+// This file has been modified from Ken Silverman's original release
 
 /***********************************************************************************************
 Edited by lecom
@@ -7,7 +7,6 @@ Edited by lecom
 
 #ifndef __VOXLAP5_H__
 #define __VOXLAP5_H__ 1
-#include <kplib.h>
 
 #ifndef VOXLAP_DLL_FUNC
 #define VOXLAP_DLL_FUNC
@@ -55,7 +54,7 @@ Edited by lecom
 #endif
 
 /* 3 dimensional points don't have power of 2 vector*/
-typedef struct { long x, y, z; } lpoint3d;
+typedef struct { int x, y, z; } lpoint3d;
 typedef struct { float x, y, z; } point3d;
 typedef struct { double x, y, z; } dpoint3d;
 
@@ -76,10 +75,10 @@ typedef union
 } uspoint2d;
 typedef union
 {
-	struct { long x, y; };
-	long array[2];
+	struct { int x, y; };
+	int array[2];
 	#ifdef __GNUC__
-	long vec __attribute__ ((vector_size (8)));
+	int vec __attribute__ ((vector_size (8)));
 	#endif
 	#ifdef _MSC_VER
 	__ALIGN(16) __m64 vec;
@@ -111,39 +110,39 @@ typedef union
 } point4d;
 
 	/*Sprite structures:*/
-typedef struct { long col; unsigned short z; char vis, dir; } kv6voxtype;
+typedef struct { int col; unsigned short z; char vis, dir; } kv6voxtype;
 
 typedef struct kv6data
 {
-	long leng, xsiz, ysiz, zsiz;
+	int leng, xsiz, ysiz, zsiz;
 	float xpiv, ypiv, zpiv;
-	unsigned long numvoxs;
-	long namoff;
+	unsigned int numvoxs;
+	int namoff;
 	struct kv6data *lowermip;
 	kv6voxtype *vox;      /*numvoxs*sizeof(kv6voxtype)*/
-	unsigned long *xlen;  /*xsiz*sizeof(long)*/
+	unsigned int *xlen;  /*xsiz*sizeof(int)*/
 	unsigned short *ylen; /*xsiz*ysiz*sizeof(short)*/
 } kv6data;
 
 typedef struct
 {
-	long parent;      /*index to parent sprite (-1=none)*/
+	int parent;      /*index to parent sprite (-1=none)*/
 	point3d p[2];     /*"velcro" point of each object*/
 	point3d v[2];     /*axis of rotation for each object*/
 	short vmin, vmax; /*min value / max value*/
 	char htype, filler[7];
 } hingetype;
 
-typedef struct { long tim, frm; } seqtyp;
+typedef struct { int tim, frm; } seqtyp;
 
 typedef struct
 {
-	long numspr, numhin, numfrm, seqnum;
-	long namoff;
+	int numspr, numhin, numfrm, seqnum;
+	int namoff;
 	kv6data *basekv6;      /*Points to original unconnected KV6 (maybe helpful?)*/
 	struct vx5sprite *spr; /*[numspr]*/
 	hingetype *hinge;      /*[numhin]*/
-	long *hingesort;       /*[numhin]*/
+	int *hingesort;       /*[numhin]*/
 	short *frmval;         /*[numfrm][numhin]*/
 	seqtyp *seq;           /*[seqnum]*/
 } kfatype;
@@ -153,7 +152,7 @@ typedef struct
 typedef struct vx5sprite
 {
 	point3d p; /*position in VXL coordinates*/
-	long flags; /*flags bit 0:0=use normal shading, 1=disable normal shading*/
+	int flags; /*flags bit 0:0=use normal shading, 1=disable normal shading*/
 					/*flags bit 1:0=points to kv6data, 1=points to kfatype*/
 					/*flags bit 2:0=normal, 1=invisible sprite*/
 	union { point3d s, x; }; /*kv6data.xsiz direction in VXL coordinates*/
@@ -163,9 +162,9 @@ typedef struct vx5sprite
 		kfatype *kfaptr; /*pointer to KFA animation  (bit 1 of flags = 1)*/
 	};
 	union { point3d h, y; }; /*kv6data.ysiz direction in VXL coordinates*/
-	long kfatim;        /*time (in milliseconds) of KFA animation*/
+	int kfatim;        /*time (in milliseconds) of KFA animation*/
 	union { point3d f, z; }; /*kv6data.zsiz direction in VXL coordinates*/
-	long okfatim;       /*make vx5sprite exactly 64 bytes :)*/
+	int okfatim;       /*make vx5sprite exactly 64 bytes :)*/
 } vx5sprite;
 
 typedef enum{
@@ -198,15 +197,15 @@ typedef struct Vox_VX5Sprite{
 typedef struct /*(68 bytes)*/
 {
 	lpoint3d chk; /*a solid point on piece (x,y,pointer) (don't touch!)*/
-	long i0, i1; /*indices to start&end of slab list (don't touch!)*/
-	long x0, y0, z0, x1, y1, z1; /*bounding box, written by startfalls*/
-	long mass; /*mass of piece, written by startfalls (1 unit per voxel)*/
+	int i0, i1; /*indices to start&end of slab list (don't touch!)*/
+	int x0, y0, z0, x1, y1, z1; /*bounding box, written by startfalls*/
+	int mass; /*mass of piece, written by startfalls (1 unit per voxel)*/
 	point3d centroid; /*centroid of piece, written by startfalls*/
 
 		/*userval is set to -1 when a new piece is spawned. Voxlap does not*/
 		/*read or write these values after that point. You should use these to*/
 		/*play an initial sound and track velocity*/
-	long userval, userval2;
+	int userval, userval2;
 } flstboxtype;
 
 	/*Lighting variables: (used by updatelighting)*/
@@ -228,17 +227,17 @@ struct vx5_interface
 		/*Clipmove hit point info (use this after calling clipmove):*/
 	double clipmaxcr; /*clipmove always calls findmaxcr even with no movement*/
 	dpoint3d cliphit[3];
-	long cliphitnum;
+	int cliphitnum;
 
 		/*Bounding box written by last set* VXL writing call*/
-	long minx, miny, minz, maxx, maxy, maxz;
+	int minx, miny, minz, maxx, maxy, maxz;
 
 		/*Falling voxels shared data:*/
-	long flstnum;
+	int flstnum;
 	flstboxtype flstcnt[FLPIECES];
 
 		/*Total count of solid voxels in .VXL map (included unexposed voxels)*/
-	long globalmass;
+	int globalmass;
 
 		/*Temp workspace for KFA animation (hinge angles)*/
 		/*Animsprite writes these values&you may modify them before drawsprite*/
@@ -248,13 +247,13 @@ struct vx5_interface
 
 		/*Opticast variables:*/
 	float anginc;
-	long sideshademode, mipscandist, maxscandist, vxlmipuse, fogcol;
+	int sideshademode, mipscandist, maxscandist, vxlmipuse, fogcol;
 
 		/*Drawsprite variables:*/
-	long kv6mipfactor, kv6col;
+	int kv6mipfactor, kv6col;
 		/*Drawsprite x-plane clipping (reset to 0,(high int) after use!)*/
 		/*For example min=8,max=12 permits only planes 8,9,10,11 to draw*/
-	long xplanemin, xplanemax;
+	int xplanemin, xplanemax;
 	
 	/*Stuff added by lecom*/
 	/*0.0 - 1.0*/
@@ -264,22 +263,22 @@ struct vx5_interface
 	unsigned int CPU_Pos;
 
 		/*Map modification function data:*/
-	long curcol, currad, curhei;
+	int curcol, currad, curhei;
 	float curpow;
 
 		/*Procedural texture function data:*/
-	long (*colfunc)(lpoint3d *);
-	long cen, amount, *pic, bpl, xsiz, ysiz, xoru, xorv, picmode;
+	int (*colfunc)(lpoint3d *);
+	int cen, amount, *pic, bpl, xsiz, ysiz, xoru, xorv, picmode;
 	point3d fpico, fpicu, fpicv, fpicw;
 	lpoint3d pico, picu, picv;
 	float daf;
 
 		/*Lighting variables: (used by updatelighting)*/
-	long lightmode; /*0 (default), 1:simple lighting, 2:lightsrc lighting*/
+	int lightmode; /*0 (default), 1:simple lighting, 2:lightsrc lighting*/
 	lightsrctype lightsrc[MAXLIGHTS]; /*(?,?,?),128*128,262144*/
-	long numlights;
+	int numlights;
 
-	long fallcheck;
+	int fallcheck;
 	
 };
 
@@ -290,38 +289,38 @@ extern VOXLAP_DLL_FUNC struct  vx5_interface vx5;
 #endif
 
 	/*Initialization functions:*/
-extern VOXLAP_DLL_FUNC long initvoxlap ();
+extern VOXLAP_DLL_FUNC int initvoxlap ();
 extern VOXLAP_DLL_FUNC void uninitvoxlap ();
 
 	/*File related functions:*/
-extern VOXLAP_DLL_FUNC long loadsxl (const char *, char **, char **, char **);
+extern VOXLAP_DLL_FUNC int loadsxl (const char *, char **, char **, char **);
 extern VOXLAP_DLL_FUNC char *parspr (vx5sprite *, char **);
 extern VOXLAP_DLL_FUNC void loadnul (dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
-extern VOXLAP_DLL_FUNC long loaddta (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
-extern VOXLAP_DLL_FUNC long loadpng (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
+extern VOXLAP_DLL_FUNC int loaddta (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
+extern VOXLAP_DLL_FUNC int loadpng (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
 extern VOXLAP_DLL_FUNC void loadbsp (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
-extern VOXLAP_DLL_FUNC long loadvxl (const char *);
-extern VOXLAP_DLL_FUNC long savevxl (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
-extern VOXLAP_DLL_FUNC long loadsky (const char *);
+extern VOXLAP_DLL_FUNC int loadvxl (const char *);
+extern VOXLAP_DLL_FUNC int savevxl (const char *, dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *);
+extern VOXLAP_DLL_FUNC int loadsky (const char *);
 
 	/*Screen related functions:*/
-extern VOXLAP_DLL_FUNC void voxsetframebuffer (long*, long, long, long);
+extern VOXLAP_DLL_FUNC void voxsetframebuffer (int*, int, int, int);
 extern VOXLAP_DLL_FUNC void setsideshades (char, char, char, char, char, char);
 extern VOXLAP_DLL_FUNC void setcamera (dpoint3d *, dpoint3d *, dpoint3d *, dpoint3d *, float, float, float);
-extern VOXLAP_DLL_FUNC void opticast ();
-extern VOXLAP_DLL_FUNC void drawpoint2d (long, long, long);
-extern VOXLAP_DLL_FUNC void drawpoint3d (float, float, float, long);
-extern VOXLAP_DLL_FUNC void drawline2d (float, float, float, float, long);
-extern VOXLAP_DLL_FUNC void drawline3d (float, float, float, float, float, float, long);
-extern VOXLAP_DLL_FUNC long project2d (float, float, float, float *, float *, float *);
-extern VOXLAP_DLL_FUNC void drawspherefill (float, float, float, float, long);
-extern VOXLAP_DLL_FUNC void drawpicinquad (long, long, long, long, long, long, long, long, float, float, float, float, float, float, float, float);
-extern VOXLAP_DLL_FUNC void drawpolyquad (long, long, long, long, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float);
-extern VOXLAP_DLL_FUNC void print4x6 (long, long, long, long, const char *, ...);
-extern VOXLAP_DLL_FUNC void print6x8 (long, long, long, long, const char *, ...);
-extern VOXLAP_DLL_FUNC void drawtile (long, long, long, long, long, long, long, long, long, long, long, long);
-extern VOXLAP_DLL_FUNC long screencapture32bit (const char *);
-extern VOXLAP_DLL_FUNC long surroundcapture32bit (dpoint3d *, const char *, long);
+extern VOXLAP_DLL_FUNC void opticast (unsigned int, unsigned int, unsigned int, unsigned int, void**);
+extern VOXLAP_DLL_FUNC void drawpoint2d (int, int, int);
+extern VOXLAP_DLL_FUNC void drawpoint3d (float, float, float, int);
+extern VOXLAP_DLL_FUNC void drawline2d (float, float, float, float, int);
+extern VOXLAP_DLL_FUNC void drawline3d (float, float, float, float, float, float, int);
+extern VOXLAP_DLL_FUNC int project2d (float, float, float, float *, float *, float *);
+extern VOXLAP_DLL_FUNC void drawspherefill (float, float, float, float, int);
+extern VOXLAP_DLL_FUNC void drawpicinquad (int, int, int, int, int, int, int, int, float, float, float, float, float, float, float, float);
+extern VOXLAP_DLL_FUNC void drawpolyquad (int, int, int, int, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float, float);
+extern VOXLAP_DLL_FUNC void print4x6 (int, int, int, int, const char *, ...);
+extern VOXLAP_DLL_FUNC void print6x8 (int, int, int, int, const char *, ...);
+extern VOXLAP_DLL_FUNC void drawtile (int, int, int, int, int, int, int, int, int, int, int, int);
+extern VOXLAP_DLL_FUNC int screencapture32bit (const char *);
+extern VOXLAP_DLL_FUNC int surroundcapture32bit (dpoint3d *, const char *, int);
 
 	/*Sprite related functions:*/
 extern VOXLAP_DLL_FUNC kv6data *getkv6 (const char *);
@@ -331,11 +330,11 @@ extern VOXLAP_DLL_FUNC void freekv6 (kv6data *kv6);
 extern VOXLAP_DLL_FUNC void savekv6 (const char *, kv6data *);
 extern VOXLAP_DLL_FUNC void getspr (vx5sprite *, const char *);
 extern VOXLAP_DLL_FUNC kv6data *genmipkv6 (kv6data *);
-extern VOXLAP_DLL_FUNC char *getkfilname (long);
-extern VOXLAP_DLL_FUNC void animsprite (vx5sprite *, long);
+extern VOXLAP_DLL_FUNC char *getkfilname (int);
+extern VOXLAP_DLL_FUNC void animsprite (vx5sprite *, int);
 extern VOXLAP_DLL_FUNC void drawsprite (vx5sprite *);
-extern VOXLAP_DLL_FUNC long meltsphere (vx5sprite *, lpoint3d *, long);
-extern VOXLAP_DLL_FUNC long meltspans (vx5sprite *, vspans *, long, lpoint3d *);
+extern VOXLAP_DLL_FUNC int meltsphere (vx5sprite *, lpoint3d *, int);
+extern VOXLAP_DLL_FUNC int meltspans (vx5sprite *, vspans *, int, lpoint3d *);
 
 	/*Physics helper functions:*/
 extern VOXLAP_DLL_FUNC void orthonormalize (point3d *, point3d *, point3d *);
@@ -344,68 +343,68 @@ extern VOXLAP_DLL_FUNC void orthorotate (float, float, float, point3d *, point3d
 extern VOXLAP_DLL_FUNC void dorthorotate (double, double, double, dpoint3d *, dpoint3d *, dpoint3d *);
 extern VOXLAP_DLL_FUNC void axisrotate (point3d *, point3d *, float);
 extern VOXLAP_DLL_FUNC void slerp (point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, float);
-extern VOXLAP_DLL_FUNC long cansee (point3d *, point3d *, lpoint3d *);
-extern VOXLAP_DLL_FUNC void hitscan (dpoint3d *, dpoint3d *, lpoint3d *, long **, long *);
+extern VOXLAP_DLL_FUNC int cansee (point3d *, point3d *, lpoint3d *);
+extern VOXLAP_DLL_FUNC void hitscan (dpoint3d *, dpoint3d *, lpoint3d *, int **, int *);
 extern VOXLAP_DLL_FUNC void sprhitscan (dpoint3d *, dpoint3d *, vx5sprite *, lpoint3d *, kv6voxtype **, float *vsc);
 extern VOXLAP_DLL_FUNC double findmaxcr (double, double, double, double);
 extern VOXLAP_DLL_FUNC void clipmove (dpoint3d *, dpoint3d *, double);
-extern VOXLAP_DLL_FUNC long triscan (point3d *, point3d *, point3d *, point3d *, lpoint3d *);
-extern VOXLAP_DLL_FUNC void estnorm (long, long, long, point3d *);
+extern VOXLAP_DLL_FUNC int triscan (point3d *, point3d *, point3d *, point3d *, lpoint3d *);
+extern VOXLAP_DLL_FUNC void estnorm (int, int, int, point3d *);
 
 	/*VXL reading functions (fast!):*/
-extern VOXLAP_DLL_FUNC long isvoxelsolid (long, long, long);
-extern VOXLAP_DLL_FUNC long anyvoxelsolid (long, long, long, long);
-extern VOXLAP_DLL_FUNC long anyvoxelempty (long, long, long, long);
-extern VOXLAP_DLL_FUNC long getfloorz (long, long, long);
-extern VOXLAP_DLL_FUNC long* getcube (long, long, long);
+extern VOXLAP_DLL_FUNC int isvoxelsolid (int, int, int);
+extern VOXLAP_DLL_FUNC int anyvoxelsolid (int, int, int, int);
+extern VOXLAP_DLL_FUNC int anyvoxelempty (int, int, int, int);
+extern VOXLAP_DLL_FUNC int getfloorz (int, int, int);
+extern VOXLAP_DLL_FUNC int* getcube (int, int, int);
 
 	/*VXL writing functions (optimized & bug-free):*/
-extern VOXLAP_DLL_FUNC void setcube (long, long, long, long);
-extern VOXLAP_DLL_FUNC void setsphere (lpoint3d *, long, long);
-extern VOXLAP_DLL_FUNC void setellipsoid (lpoint3d *, lpoint3d *, long, long, long);
-extern VOXLAP_DLL_FUNC void setcylinder (lpoint3d *, lpoint3d *, long, long, long);
-extern VOXLAP_DLL_FUNC void setrect (lpoint3d *, lpoint3d *, long);
-extern VOXLAP_DLL_FUNC void settri (point3d *, point3d *, point3d *, long);
-extern VOXLAP_DLL_FUNC void setsector (point3d *, long *, long, float, long, long);
-extern VOXLAP_DLL_FUNC void setspans (vspans *, long, lpoint3d *, long);
-extern VOXLAP_DLL_FUNC void setheightmap (const unsigned char *, long, long, long, long, long, long, long);
-extern VOXLAP_DLL_FUNC void setkv6 (vx5sprite *, long dacol);
+extern VOXLAP_DLL_FUNC void setcube (int, int, int, int);
+extern VOXLAP_DLL_FUNC void setsphere (lpoint3d *, int, int);
+extern VOXLAP_DLL_FUNC void setellipsoid (lpoint3d *, lpoint3d *, int, int, int);
+extern VOXLAP_DLL_FUNC void setcylinder (lpoint3d *, lpoint3d *, int, int, int);
+extern VOXLAP_DLL_FUNC void setrect (lpoint3d *, lpoint3d *, int);
+extern VOXLAP_DLL_FUNC void settri (point3d *, point3d *, point3d *, int);
+extern VOXLAP_DLL_FUNC void setsector (point3d *, int *, int, float, int, int);
+extern VOXLAP_DLL_FUNC void setspans (vspans *, int, lpoint3d *, int);
+extern VOXLAP_DLL_FUNC void setheightmap (const unsigned char *, int, int, int, int, int, int, int);
+extern VOXLAP_DLL_FUNC void setkv6 (vx5sprite *, int dacol);
 
 	/*VXL writing functions (slow or buggy):*/
-extern VOXLAP_DLL_FUNC void sethull3d (point3d *, long, long, long);
-extern VOXLAP_DLL_FUNC void setlathe (point3d *, long, long, long);
-extern VOXLAP_DLL_FUNC void setblobs (point3d *, long, long, long);
-extern VOXLAP_DLL_FUNC void setfloodfill3d (long, long, long, long, long, long, long, long, long);
+extern VOXLAP_DLL_FUNC void sethull3d (point3d *, int, int, int);
+extern VOXLAP_DLL_FUNC void setlathe (point3d *, int, int, int);
+extern VOXLAP_DLL_FUNC void setblobs (point3d *, int, int, int);
+extern VOXLAP_DLL_FUNC void setfloodfill3d (int, int, int, int, int, int, int, int, int);
 extern VOXLAP_DLL_FUNC void sethollowfill ();
-extern VOXLAP_DLL_FUNC void setkvx (const char *, long, long, long, long, long);
-extern VOXLAP_DLL_FUNC void setflash (float, float, float, long, long, long);
-extern VOXLAP_DLL_FUNC void setnormflash (float, float, float, long, long);
+extern VOXLAP_DLL_FUNC void setkvx (const char *, int, int, int, int, int);
+extern VOXLAP_DLL_FUNC void setflash (float, float, float, int, int, int);
+extern VOXLAP_DLL_FUNC void setnormflash (float, float, float, int, int);
 
 	/*VXL MISC functions:*/
-extern VOXLAP_DLL_FUNC void updatebbox (long, long, long, long, long, long, long);
+extern VOXLAP_DLL_FUNC void updatebbox (int, int, int, int, int, int, int);
 extern VOXLAP_DLL_FUNC void updatevxl ();
-extern VOXLAP_DLL_FUNC void genmipvxl (long, long, long, long);
-extern VOXLAP_DLL_FUNC void updatelighting (long, long, long, long, long, long);
+extern VOXLAP_DLL_FUNC void genmipvxl (int, int, int, int);
+extern VOXLAP_DLL_FUNC void updatelighting (int, int, int, int, int, int);
 
 	/*Falling voxels functions:*/
-extern VOXLAP_DLL_FUNC void checkfloatinbox (long, long, long, long, long, long);
+extern VOXLAP_DLL_FUNC void checkfloatinbox (int, int, int, int, int, int);
 extern VOXLAP_DLL_FUNC void startfalls ();
-extern VOXLAP_DLL_FUNC void dofall (long);
-extern VOXLAP_DLL_FUNC long meltfall (vx5sprite *, long, long);
+extern VOXLAP_DLL_FUNC void dofall (int);
+extern VOXLAP_DLL_FUNC int meltfall (vx5sprite *, int, int);
 extern VOXLAP_DLL_FUNC void finishfalls ();
 
 	/*Procedural texture functions:*/
-extern VOXLAP_DLL_FUNC long curcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long floorcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long jitcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long manycolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long sphcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long woodcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long pngcolfunc (lpoint3d *);
-extern VOXLAP_DLL_FUNC long kv6colfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int curcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int floorcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int jitcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int manycolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int sphcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int woodcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int pngcolfunc (lpoint3d *);
+extern VOXLAP_DLL_FUNC int kv6colfunc (lpoint3d *);
 
 	/*Editing backup/restore functions*/
-extern VOXLAP_DLL_FUNC void voxbackup (long, long, long, long, long);
+extern VOXLAP_DLL_FUNC void voxbackup (int, int, int, int, int);
 extern VOXLAP_DLL_FUNC void voxdontrestore ();
 extern VOXLAP_DLL_FUNC void voxrestore ();
 extern VOXLAP_DLL_FUNC void voxredraw ();
@@ -414,17 +413,17 @@ extern VOXLAP_DLL_FUNC void voxredraw ();
 extern VOXLAP_DLL_FUNC int Vox_Lightning(float fxp, float fyp, float fzp, float radius, float intensity);
 extern VOXLAP_DLL_FUNC void Vox_SetSideShades(unsigned char low_x, unsigned char low_y, 
 unsigned char high_x, unsigned char high_y, unsigned char b, unsigned char t);
-extern VOXLAP_DLL_FUNC float Vox_Project2D (float, float, float, long*, long*);
+extern VOXLAP_DLL_FUNC float Vox_Project2D (float, float, float, int*, int*);
 extern VOXLAP_DLL_FUNC int Vox_DrawRect2D(int, int, unsigned int, unsigned int, unsigned int, float);
-float _Vox_KV6Project2D(float, float, float, long*, long*);
+float _Vox_KV6Project2D(float, float, float, int*, int*);
 extern VOXLAP_DLL_FUNC int Vox_Estimate_Near_KV6_Shade(Vox_VX5Sprite *spr);
 extern VOXLAP_DLL_FUNC int Vox_RayCastKV6(Vox_VX5Sprite*);
 extern VOXLAP_DLL_FUNC int Vox_SpriteHitScan(Vox_VX5Sprite *, point3d *, point3d *, point3d *, kv6voxtype **);
 extern VOXLAP_DLL_FUNC struct vx5_interface *Vox_GetVX5();
-extern VOXLAP_DLL_FUNC long Vox_vloadvxl(const char*, unsigned int);
+extern VOXLAP_DLL_FUNC int Vox_vloadvxl(const char*, unsigned int);
 extern VOXLAP_DLL_FUNC Vox_VX5Sprite *Vox_InitSprite(Vox_VX5Sprite *);
 extern VOXLAP_DLL_FUNC void Vox_ConvertToEucl(float, float, float, dpoint3d *, dpoint3d *, dpoint3d *);
-extern VOXLAP_DLL_FUNC long Vox_DeleteFloatingBlock (long);
+extern VOXLAP_DLL_FUNC int Vox_DeleteFloatingBlock (int);
 extern VOXLAP_DLL_FUNC int Vox_RenderPolygon (unsigned int color, int ulx, int uly, int urx, 
 int ury, int llx, int lly, int lrx, int lry);
 

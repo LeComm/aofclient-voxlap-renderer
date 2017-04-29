@@ -1,4 +1,6 @@
 	//Color arithemtic functions (used by voxlap itself and voxed)
+// This file has been modified from Ken Silverman's original release
+//(Maybe it actually hasn't, but just in case)
 
 #include "voxlap5.h"
 
@@ -6,7 +8,7 @@ EXTERN_VOXLAP int64_t flashbrival;
 
 #ifdef __WATCOMC__
 
-void mmxcoloradd (long *);
+void mmxcoloradd (int *);
 #pragma aux mmxcoloradd =\
 	".686"\
 	"movd mm0, [eax]"\
@@ -16,7 +18,7 @@ void mmxcoloradd (long *);
 	modify exact \
 	value
 
-void mmxcolorsub (long *);
+void mmxcolorsub (int *);
 #pragma aux mmxcolorsub =\
 	".686"\
 	"movd mm0, [eax]"\
@@ -28,7 +30,7 @@ void mmxcolorsub (long *);
 
 #else
 
-static inline void mmxcoloradd (long *a)
+static inline void mmxcoloradd (int *a)
 {
 	((uint8_t *)a)[0] += ((uint8_t *)(&flashbrival))[0];
 	((uint8_t *)a)[1] += ((uint8_t *)(&flashbrival))[1];
@@ -36,7 +38,7 @@ static inline void mmxcoloradd (long *a)
 	((uint8_t *)a)[3] += ((uint8_t *)(&flashbrival))[3];
 }
 
-static inline void mmxcolorsub (long *a)
+static inline void mmxcolorsub (int *a)
 {
 	((uint8_t *)a)[0] -= ((uint8_t *)((unsigned int)flashbrival))[0];
 	((uint8_t *)a)[1] -= ((uint8_t *)((unsigned int)flashbrival))[1];

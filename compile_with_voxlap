@@ -1,2 +1,0 @@
-#!/bin/bash
-dmd ./vxwclient-voxlap-renderer/voxlap5.a ./vxwclient-voxlap-renderer/*.d ./vxwclient-voxlap-renderer/*.di -unittest -profile *.d *.di -gc -L-L/usr/local/lib -L-lslang -ofmain ./derelict/sdl2/*.d ./derelict/enet/*.d ./derelict/util/*.d

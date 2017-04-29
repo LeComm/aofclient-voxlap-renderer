@@ -33,3 +33,6 @@ Using:
 Put renderer.d, voxlap.di, voxlap5.a and compilevoxlap into aof-client directory
 ./compile_with_voxlap or ./compile_with_voxlap_ldc for that sick framerate
 ./main (to start the game, don't forget to run the server first)
+
+Licensing:
+This software is released under the same license as its preceding Voxlap port (https://github.com/Ericson2314/Voxlap) and as the original Voxlap Engine non-commercial license.
