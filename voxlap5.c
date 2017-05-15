@@ -360,7 +360,8 @@ int64_t gi=0, gcsub[8] =
 	0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff,0xff00ff00ff00ff
 };
 int gylookup[512+36]={0}, gmipnum = 0; //256+4+128+4+64+4+...
-static int gxmip, gpixy;
+static int gxmip;
+static char **gpixy;
 static int gmaxscandist;
 //int reax, rebx, recx, redx, resi, redi, rebp, resp, remm[16];
 
@@ -1382,14 +1383,14 @@ void gline (int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 	ce = c; v = gstartv;
 	j = (((unsigned int)(ray_pos[1]-ray_pos[0]))>>31);
 	gx = ray_pos[j];
-	int ixy = gpixy;
+	char **ixy = gpixy;
 	unsigned int d_int, prev_j;
 	unsigned int maxdmulruns, runs;
 	unsigned int sqr_dist=1;
 	unsigned char fog_alpha=255, nfog_alpha=0;
 	unsigned int orfog, ogfog, obfog;
 	unsigned int rfog, gfog, bfog, mm_fog;
-	unsigned int colreg, col;
+	unsigned int colreg;
 	signed int old_gx;
 	castdat fill_dat={0, 1};
 	const float zbufratio=((float)(1u<<30u))/(vx5.maxscandist*vx5.maxscandist);
@@ -1398,7 +1399,7 @@ void gline (int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 	orfog<<=8; ogfog<<=8; obfog<<=8;
 	rfog=orfog*nfog_alpha; gfog=ogfog*nfog_alpha; bfog=obfog*nfog_alpha; mm_fog=rfog | (gfog<<16);
 
-	if (v == (char *)*(int *)gpixy) goto drawflor; goto drawceil; 
+	if (v == *gpixy) goto drawflor; goto drawceil; 
 	while (1)
 	{
 
@@ -1451,7 +1452,7 @@ drawfwall:;
 		//fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z);
 		fill_dat.dist=(((sqr_dist+(unsigned int)((c->z1-gipos.z)*(c->z1-gipos.z)))<<16)/pow_maxscandist)<<14;
 
-		if (v == (char *)*(int *)ixy) goto drawflor;
+		if (v == *ixy) goto drawflor;
 
 //drawcwall:;
 		const char v3=v[3];
@@ -1477,7 +1478,7 @@ drawfwall:;
 			} while (v3 != c->z0);
 			}
 		}
-		if (v == (char *)*(int *)ixy) goto drawflor;
+		if (v == *ixy) goto drawflor;
 
 drawceil:;
 		fill_dat.col=(*(int *)&v[-4]);
@@ -1522,7 +1523,8 @@ afterdelete:;
 		if (c < &cfasm[128])
 		{
 			/*ixy is the position(index) on sptr, gixy is some kind of direction vector for pointer usage*/
-			ixy += gixy[j];
+			//ixy += gixy[j]; (crashes for some reason)
+			ixy=(char**)(((char*)ixy)+gixy[j]);
 			ray_pos[j] += ray_dir[j];
 			/*j indicates whether ray.x+=x or ray.y+=y should be done (at some point, you'll always end up doing something like this in DDA) */
 			/*gpz is the ray position, fixed point (x>>16)*/
@@ -1533,7 +1535,7 @@ afterdelete:;
 			/*gx is something like distance, gxmax is like max distance*/
 			/*all are multiplied by PREC*/
 			if (gx > gxmax) break;
-			v = (char *)*(int *)ixy; c = ce;
+			v = *ixy; c = ce;
 #if (USEZBUFFER!=0)
 			float dist_sqrt=PREC_DIV(gx);
 			sqr_dist=dist_sqrt*dist_sqrt;
@@ -1558,14 +1560,14 @@ afterdelete:;
 			const signed int gy = gylookup[v[(v[0]<<2)+3]];
 			if (__BDMLRS(gy,c->cx1,c->cy1,old_gx))
 			{
-				col = (int)c->i1; dax = c->cx1; day = c->cy1;
+				castdat *col = c->i1; dax = c->cx1; day = c->cy1;
 				while (__BDMLRS(gylookup[v[2]+1],dax,day,old_gx))
-					{ col -= sizeof(castdat); dax -= gi0; day -= gi1; }
+					{ col--; dax -= gi0; day -= gi1; }
 				++ce; if (ce >= &cfasm[192]) return; //Give it max=64 entries like ASM
 				for(c2=ce;c2>c;--c2) *c2 = c2[-1];
 				++c;
 	
-				c->i1 = (castdat *)col; c[-1].i0 = ((castdat *)col)+1;
+				c->i1 = col; c[-1].i0 = col+1;
 				c->cx1 = dax; c[-1].cx0 = dax+gi0;
 				c->cy1 = day; c[-1].cy0 = day+gi1;
 				c->z1 = c[-1].z0 = v[(v[0]<<2)+3];
@@ -1639,11 +1641,11 @@ void setflash (float px, float py, float pz, int flashradius, int numang, int in
 
 	gposxfrac[1] = px - (float)(ipx); gposxfrac[0] = 1 - gposxfrac[1];
 	gposyfrac[1] = py - (float)(ipy); gposyfrac[0] = 1 - gposyfrac[1];
-	gpixy = (int)&sptr[ipy*VSID + ipx];
+	gpixy = &sptr[ipy*VSID + ipx];
 	ftol(pz*FPREC-.5f,&gposz);
 	for(gylookup[0]=-gposz,i=1;i<260;i++) gylookup[i] = gylookup[i-1]+FPREC;
 
-	vs = (char *)*(int *)gpixy;
+	vs = *gpixy;
 	if (ipz >= vs[1])
 	{
 		do
@@ -1691,7 +1693,7 @@ void setflash (float px, float py, float pz, int flashradius, int numang, int in
 	//------------------------------------------------------------------------
 		j = (((unsigned int)(gpz[1]-gpz[0]))>>31);
 		gx = gpz[j];
-		ixy = gpixy;
+		ixy = (size_t)gpixy;
 		if (v == (char *)*(int *)gpixy) goto fdrawflor; goto fdrawceil;
 
 		while (1)
@@ -2414,7 +2416,7 @@ void opticast (unsigned int screenx1, unsigned int screenx2, unsigned int screen
 	glipos.x = ((int)gipos.x);
 	glipos.y = ((int)gipos.y);
 	glipos.z = ((int)gipos.z);
-	gpixy = (int)&sptr[glipos.y*VSID + glipos.x];
+	gpixy = &sptr[glipos.y*VSID + glipos.x];
 	ftol(gipos.z*PREC-.5f,&gposz);
 	gposxfrac[1] = gipos.x - (float)glipos.x; gposxfrac[0] = 1-gposxfrac[1];
 	gposyfrac[1] = gipos.y - (float)glipos.y; gposyfrac[0] = 1-gposyfrac[1];
@@ -2440,7 +2442,7 @@ void opticast (unsigned int screenx1, unsigned int screenx2, unsigned int screen
 
 	if (ofogdist < 0) nskypic = skypic;
 
-	gstartv = (char *)*(int *)gpixy;
+	gstartv = *gpixy;
 	
 	if (glipos.z >= gstartv[1])
 	{
@@ -10099,6 +10101,11 @@ VOXLAP_DLL_FUNC int initvoxlap ()
 	int j, k, z, zz;
 	volatile unsigned int i;
 	float f, ff;
+	
+	if(sizeof(size_t)!=sizeof(char*)){
+		evilquit("size_t doesn't have the size of a pointer on the target system!");
+		return -1;
+	}
 
 		//unlocking code memory for self-modifying code
 	#if (defined(USEV5ASM) && (USEV5ASM != 0)) //if true
@@ -10277,7 +10284,8 @@ VOXLAP_DLL_FUNC int initvoxlap ()
 
 /*Now some stuff that is used, but somehow not defined*/
 void evilquit(char const* message){
-	printf("evilquit:%s", message);
+	printf("[VOXLAP]ERROR: %s\n", message);
+	fflush(stdout);
 	uninitvoxlap();
 	exit(-1);
 }

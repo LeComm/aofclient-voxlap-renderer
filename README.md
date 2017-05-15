@@ -23,16 +23,8 @@ Original Voxlap Engine non-commercial license:
    test platform or as an advertisement to another commercial game is
    commercial exploitation and prohibited without a commercial license.
 
-
-Compiling:
-	GCC:
-		./compile_gcc_opt or ./compile_gcc_noopt (opt = optimize)
-	clang:
-		./compile_clang_opt or ./compile_clang_noopt (opt = optimize)
-Using:
-Put renderer.d, voxlap.di, voxlap5.a and compilevoxlap into aof-client directory
-./compile_with_voxlap or ./compile_with_voxlap_ldc for that sick framerate
-./main (to start the game, don't forget to run the server first)
-
-Licensing:
-This software is released under the same license as its preceding Voxlap port (https://github.com/Ericson2314/Voxlap) and as the original Voxlap Engine non-commercial license.
+Usage:
+DMD/GDC/LDC with object files (Standard):
+	Put Makefile into vxw-client source directory. Type "make -f make_voxlap_renderer". Go to vxw-client source directory, type "make". (For GDC or LDC, type "make gdc"/"make ldc").
+LDC with LLVM LTO (For FPS increase by 1/5):
+	Put Makefile into vxw-client source directory. Type "make -f make_voxlap_renderer voxlap5.ll". Go to vxw-client source directory, type "make ll".
