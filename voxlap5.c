@@ -116,39 +116,30 @@ for all these faces of the cube*/
 unsigned char HorizontalCubeShades[4]={0, 0, 0, 0};
 unsigned char CubeShadeBottom=0, CubeShadeTop=0;
 
-float invpwr_maxscandist=1.0;
-
-#define __COLOR_BOUND_CHECKS__ 1
-
-/*Benchmarking showed that this is faster than using precomputed char * col pointers instead of indexing
-and faster than SIMD with x86 instructions*/
-#if (__COLOR_BOUND_CHECKS__==0)
+#if 0
 #define __GLINE_PROCESS_COLOR__(col, d_int) \
-	d_int*=fog_alpha; \
-	((unsigned char*)&col)[0]=((((unsigned char*)&col)[0]*d_int)+rfog)>>16; \
-	((unsigned char*)&col)[1]=((((unsigned char*)&col)[1]*d_int)+gfog)>>16; \
-	((unsigned char*)&col)[2]=((((unsigned char*)&col)[2]*d_int)+bfog)>>16; \
-	col|=0xff000000;
+	{ \
+		unsigned int col_r=((col&0x000000ff)*d_int)>>8; \
+		unsigned int col_g=((col&0x0000ff00)*d_int)>>16; \
+		unsigned int col_b=(((col&0x00ff0000)>>8)*d_int)>>16; \
+		col_r|=(-((col_r&0x0000ff00)!=0) & 0x000000ff); \
+		col_g|=(-((col_g&0x0000ff00)!=0) & 0x000000ff); \
+		col_b|=(-((col_b&0x0000ff00)!=0) & 0x000000ff); \
+		unsigned int col_comp1=(((col_r | (col_b<<16))&0x00ff00ff)*fog_alpha+fog_ccomp1*(255-fog_alpha))>>8; \
+		unsigned int col_comp2=(((col_g<<8)&0x0000ff00)*fog_alpha+fog_ccomp2*(255-fog_alpha))>>8; \
+		col=0xff000000 | (col_comp1&0x00ff00ff) | (col_comp2&0x0000ff00); \
+	}
 #else
-		/*__gpcr-=(__gpcr-255)>>((__gpcr>255)<<4); \
-		__gpcg-=(__gpcg-255)>>((__gpcg>255)<<4); \
-		__gpcb-=(__gpcb-255)>>((__gpcb>255)<<4); \*/
 #define __GLINE_PROCESS_COLOR__(col, d_int) \
 	d_int*=fog_alpha; \
 	{ \
-		unsigned int __gpcr=(((unsigned char*)&col)[0]*d_int+rfog)>>16; \
-		unsigned int __gpcg=(((unsigned char*)&col)[1]*d_int+gfog)>>16; \
-		unsigned int __gpcb=(((unsigned char*)&col)[2]*d_int+bfog)>>16; \
-		if(__gpcr>255) \
-			__gpcr=255; \
-		if(__gpcg>255) \
-			__gpcg=255; \
-		if(__gpcb>255) \
-			__gpcb=255; \
-		((unsigned char*)&col)[0]=__gpcr; \
-		((unsigned char*)&col)[1]=__gpcg; \
-		((unsigned char*)&col)[2]=__gpcb; \
-		col|=0xff000000; \
+		unsigned int col_r=((col&0x000000ff)*d_int+rfog)>>16; \
+		unsigned int col_g=(((col&0x0000ff00)>>8)*d_int+gfog)>>16; \
+		unsigned int col_b=(((col&0x00ff0000)>>16)*d_int+bfog)>>16; \
+		col_r|=(-((col_r&0x0000ff00)!=0) & 0x000000ff); \
+		col_g|=(-((col_g&0x0000ff00)!=0) & 0x000000ff); \
+		col_b|=(-((col_b&0x0000ff00)!=0) & 0x000000ff); \
+		col=0xff000000 | (col_b<<16) | (col_g<<8) | col_r; \
 	}
 #endif
 
@@ -256,7 +247,7 @@ static int *vbuf = 0, *vbit = 0, vbiti;
 	//Memory management variables:
 #define MAXCSIZ 1028
 char tbuf[MAXCSIZ]={0};
-int tbuf2[MAXZDIM*3]={0};
+size_t tbuf2[MAXZDIM*3]={0};
 int templongbuf[MAXZDIM]={0};
 
 static char nullst = 0; //nullst always NULL string
@@ -293,6 +284,8 @@ static float gihx, gihy, gihz, gposxfrac[2], gposyfrac[2], grd;
 static int gposz, giforzsgn, gstartz0, gstartz1, gixyi[2];
 static char *gstartv;
 
+static float optistrx, optistry, optiheix, optiheiy, optiaddx, optiaddy;
+
 int backtag=0, backedup = -1, bacx0=0, bacy0=0, bacx1=0, bacy1=0;
 char *bacsptr[262144]={NULL};
 
@@ -317,10 +310,14 @@ static int xbsceil[32], xbsflor[32]; //disabling mangling for inline asm
 #define VLSTSIZ 65536 //Theoretically should be at least: VOXSIZ\8
 #define LOGHASHEAD 12
 #define FSTKSIZ 8192
-typedef struct { int v, b; } vlstyp;
+typedef struct { size_t v, b; } vlstyp;
 static vlstyp vlst[VLSTSIZ];
 static int hhead[1<<LOGHASHEAD], vlstcnt = 0x7fffffff;
-static lpoint3d fstk[FSTKSIZ]; //Note .z is actually used as a pointer, not z!
+typedef struct{
+	long x, y;
+	size_t z;
+} fstk_entry_t;
+static fstk_entry_t fstk[FSTKSIZ]; //Note .z is actually used as a pointer, not z!
 #define FLCHKSIZ 4096
 static lpoint3d flchk[FLCHKSIZ]; int flchkcnt = 0;
 
@@ -343,7 +340,8 @@ void mat1(point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, poin
 void mat2(point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *, point3d *);
 
 	//Parallaxing sky variables:
-static int skypic = 0, nskypic = 0, skybpl, skyysiz, skycurlng, skycurdir;
+static int skybpl, skyysiz, skycurlng, skycurdir;
+static size_t skypic=0, nskypic=0;
 static float skylngmul;
 static point2d *skylng = 0;
 
@@ -527,7 +525,7 @@ static const uint32_t font4x6[] = //256 DOS chars, from Ken's Build SMALLFNT
  * @param fmt string - same syntax as printf
  */
  //ONLY WORKS FOR 32 BIT (see cast from frameplace pointer to int)
-void VOXLAP_DLL_FUNC print4x6 (int x, int y, int fcol, int bcol, const char *fmt, ...)
+void VOXLAP_DLL_FUNC print4x6 (int xpos, int ypos, int fcol, int bcol, const char *fmt, ...)
 {
 	va_list arglist;
 	char st[280], *c;
@@ -537,8 +535,8 @@ void VOXLAP_DLL_FUNC print4x6 (int x, int y, int fcol, int bcol, const char *fmt
 	va_start(arglist,fmt);
 	vsprintf(st,fmt,arglist);
 	va_end(arglist);
-
-	y = y*bytesperline+(x<<2)+(int)frameplace;
+	size_t x=xpos;
+	size_t y = ypos*bytesperline+(x<<2)+(size_t)frameplace;
 	if (bcol < 0)
 	{
 		for(j=20;j>=0;y+=bytesperline,j-=4)
@@ -630,7 +628,7 @@ static const uint64_t font6x8[] = //256 DOS chars, from: DOSAPP.FON (tab blank)
  * @param fmt string - same syntax as printf
  */
  //ONLY WORKS FOR 32 BIT (see cast from frameplace pointer to int)
-void VOXLAP_DLL_FUNC print6x8 (int x, int y, int fcol, int bcol, const char *fmt, ...)
+void VOXLAP_DLL_FUNC print6x8 (int xpos, int ypos, int fcol, int bcol, const char *fmt, ...)
 {
 	va_list arglist;
 	char st[280], *c, *v;
@@ -640,14 +638,15 @@ void VOXLAP_DLL_FUNC print6x8 (int x, int y, int fcol, int bcol, const char *fmt
 	va_start(arglist,fmt);
 	vsprintf(st,fmt,arglist);
 	va_end(arglist);
+	size_t x=xpos, y=ypos;
 
-	y = y*bytesperline+(x<<2)+(int)frameplace;
+	y = y*bytesperline+(x<<2)+(size_t)frameplace;
 	if (bcol < 0)
 	{
 		for(j=1;j<256;y+=bytesperline,j<<=1)
 			for(c=st,x=y;*c;c++,x+=24)
 			{
-				v = (char *)(((int)font6x8) + ((int)c[0])*6);
+				v = (char *)(((size_t)font6x8) + ((int)c[0])*6);
 				if (v[0]&j) *(int *)(x   ) = fcol;
 				if (v[1]&j) *(int *)(x+ 4) = fcol;
 				if (v[2]&j) *(int *)(x+ 8) = fcol;
@@ -662,7 +661,7 @@ void VOXLAP_DLL_FUNC print6x8 (int x, int y, int fcol, int bcol, const char *fmt
 	for(j=1;j<256;y+=bytesperline,j<<=1)
 		for(c=st,x=y;*c;c++,x+=24)
 		{
-			v = (char *)(((int)font6x8) + ((int)c[0])*6);
+			v = (char *)(((size_t)font6x8) + ((int)c[0])*6);
 			*(int *)(x   ) = (((-(v[0]&j))>>31)&fcol)+bcol;
 			*(int *)(x+ 4) = (((-(v[1]&j))>>31)&fcol)+bcol;
 			*(int *)(x+ 8) = (((-(v[2]&j))>>31)&fcol)+bcol;
@@ -892,13 +891,13 @@ static int slng (const char *s)
 	const char *v;
 
 	for(v=s;v[0];v+=v[0]*4);
-	return((int)v-(int)s+(v[2]-v[1]+1)*4+4);
+	return((ptrdiff_t)v-(ptrdiff_t)s+(v[2]-v[1]+1)*4+4); //64 BIT DANGER: (used to be "return((size_t)v-(size_t)s+(v[2]-v[1]+1)*4+4);")
 }
 
 VOXLAP_DLL_FUNC void voxdealloc (const char *v)
 {
-	int i, j;
-	i = (((int)v-(int)vbuf)>>2); j = (slng(v)>>2)+i;
+	size_t i, j;
+	i = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); j = (slng(v)>>2)+i; //64 BIT DANGER: used to be ("i = (((int)v-(int)vbuf)>>2); j = (slng(v)>>2)+i;")
 #if 0
 	while (i < j) { vbit[i>>5] &= ~(1<<i); i++; }
 #else
@@ -1015,7 +1014,7 @@ int* getcube (int x, int y, int z)
 	__REGISTER int ceilnum;
 	__REGISTER char *v;
 
-	if ((unsigned int)(x|y) >= VSID) return((int*)0);
+	if ((unsigned int)(x|y) >= VSID) return NULL;
 	v = sptr[y*VSID+x];	
 	while (1)
 	{
@@ -1192,14 +1191,14 @@ void expandstack (int x, int y, int *uind)
 		if (!v[0]) break;
 		v += v[0]*4;
 
-		topz = v[3]+(((int)v2-(int)v)>>2);
+		topz = v[3]+(((ptrdiff_t)v2-(ptrdiff_t)v)>>2); //64 BIT DANGER: used to be ("topz = v[3]+(((int)v2-(int)v)>>2);")
 		while (z < topz) { uind[z] = -2; z++; }
 		while (z < v[3]) { uind[z] = *(int *)v2; z++; v2 += 4; }
 	}
 	while (z < MAXZDIM) { uind[z] = -2; z++; }
 }
 
-static unsigned int single_run_count, multi_run_count;
+//static unsigned int single_run_count, multi_run_count;
 
 __FORCE_INLINE__ unsigned int Predict_Dmulrhs(int_fast64_t x, int_fast64_t a, int_fast64_t b, int_fast64_t y, int_fast64_t f, int_fast64_t g){
 	int_fast64_t div=-y*g+x*f, res;
@@ -1212,12 +1211,12 @@ __FORCE_INLINE__ unsigned int Predict_Dmulrhs(int_fast64_t x, int_fast64_t a, in
 	if(res<0)
 		return 0;
 	++res;
-	single_run_count+=res<3;
-	multi_run_count+=res>=3;
+	//single_run_count+=res<3;
+	//multi_run_count+=res>=3;
 	return res;
 }
 
-void gline (int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
+void gline(int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 {
 	uint64_t q;
 	float f, f1, f2, vd0, vd1, vz0, vx1, vy1, vz1;
@@ -1392,10 +1391,13 @@ void gline (int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 	unsigned int rfog, gfog, bfog, mm_fog;
 	unsigned int colreg;
 	signed int old_gx;
-	castdat fill_dat={0, 1};
-	const float zbufratio=((float)(1u<<30u))/(vx5.maxscandist*vx5.maxscandist);
+	const float invpwr_maxscandist=1.0/(vx5.maxscandist*vx5.maxscandist/255.0);
 	const unsigned int pow_maxscandist=vx5.maxscandist*vx5.maxscandist;
+	const unsigned int floor_z_inc=((unsigned int)(.5*(1<<14)/pow_maxscandist))<<16;
+	const unsigned int min_z_dist=((unsigned int)(.5*(1<<14)/pow_maxscandist))<<16;
+	castdat fill_dat={0, (((unsigned int)(2.0*(1<<14)/pow_maxscandist))<<16)+floor_z_inc+min_z_dist};
 	orfog=vx5.fogcol&255, ogfog=(vx5.fogcol>>8)&255, obfog=(vx5.fogcol>>16)&255;
+	unsigned int fog_ccomp1=vx5.fogcol&0x00ff00ff, fog_ccomp2=vx5.fogcol&0x0000ff00;
 	orfog<<=8; ogfog<<=8; obfog<<=8;
 	rfog=orfog*nfog_alpha; gfog=ogfog*nfog_alpha; bfog=obfog*nfog_alpha; mm_fog=rfog | (gfog<<16);
 
@@ -1422,7 +1424,9 @@ drawfwall:;
 				//fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z);
 				fill_dat.dist=(((sqr_dist+(unsigned int)((c->z1-gipos.z)*(c->z1-gipos.z)))<<16)/pow_maxscandist)<<14;
 #endif
-				d_int=(((unsigned char*)v)[((c->z1-v1)<<2)+7]>>__LSHADE_FACTOR__);
+				//int fill_dat_inc=
+				//((((unsigned int)(1.0/Predict_Dmulrhs(gylookup[c->z1], c->cx1, c->cy1, old_gx, gi0, gi1)))<<14)/pow_maxscandist)<<16;
+				d_int=(((unsigned char*)v)[((c->z1-v1)<<2)+7]);
 				d_int+=HorizontalCubeShades[(prev_j<<1)+(gixy[prev_j]<0)];
 				__GLINE_PROCESS_COLOR__(fill_dat.col, d_int);
 				/*This is still faster than predicting dmulrethigh :/*/
@@ -1494,6 +1498,7 @@ drawceil:;
 		}
 drawflor:;
 		fill_dat.col=(*(int *)&v[4]);
+		fill_dat.dist+=floor_z_inc;
 		d_int=(((unsigned char*)v)[7]>>__LSHADE_FACTOR__)+CubeShadeTop;
 		__GLINE_PROCESS_COLOR__(fill_dat.col, d_int);
 #if (__USE_ACCURATE_ZBUFFER__!=0)
@@ -1514,6 +1519,7 @@ drawflor:;
 				c->cx1-=gi0; c->cy1-=gi1;
 			}
 		}
+		fill_dat.dist-=floor_z_inc;
 #if (__USE_MMX__!=0)
 		_mm_empty();
 #endif
@@ -1540,7 +1546,7 @@ afterdelete:;
 			float dist_sqrt=PREC_DIV(gx);
 			sqr_dist=dist_sqrt*dist_sqrt;
 			//fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z);
-			fill_dat.dist=(((sqr_dist+(unsigned int)((c->z1-gipos.z)*(c->z1-gipos.z)))<<16)/pow_maxscandist)<<14;
+			//fill_dat.dist=((((sqr_dist+(unsigned int)((c->z1-gipos.z)*(c->z1-gipos.z)))<<16)/pow_maxscandist)<<14)+min_z_dist;
 #endif
 #if (__DRAW_FOG__!=0)
 			nfog_alpha=sqr_dist*invpwr_maxscandist; fog_alpha=255-nfog_alpha;
@@ -1575,13 +1581,13 @@ afterdelete:;
 		}
 	}
 //------------------------------------------------------------------------
-	castdat skydat={vx5.fogcol, 1u<<30u}, *end_ptr;
+	const castdat skydat={vx5.fogcol, 1u<<30u};
+	castdat *end_ptr;
 #if (__USE_MMX__!=0)
 	__m64 reg=*(__m64*)&skydat;
 #endif
 	for(c=ce;c>=&cfasm[128];--c){
-		end_ptr=c->i1+1;
-		for(;c->i0<end_ptr;)
+		for(;c->i0<=c->i1;)
 #if (__USE_MMX__!=0)
 			*(__m64*)c->i0++=reg;
 #else
@@ -1614,7 +1620,8 @@ void setflash (float px, float py, float pz, int flashradius, int numang, int in
 {
 	uint64_t q;
 	float vx, vy;
-	int i, j, gx, ogx, ixy, col, angoff;
+	int i, j, gx, ogx, angoff;
+	size_t col, ixy;
 	int ipx, ipy, ipz, sz0, sz1;
 	cftype *c, *c2, *ce;
 	char *v, *vs;
@@ -1693,8 +1700,8 @@ void setflash (float px, float py, float pz, int flashradius, int numang, int in
 	//------------------------------------------------------------------------
 		j = (((unsigned int)(gpz[1]-gpz[0]))>>31);
 		gx = gpz[j];
-		ixy = (size_t)gpixy;
-		if (v == (char *)*(int *)gpixy) goto fdrawflor; goto fdrawceil;
+		ixy = (size_t)gpixy; //64 BIT DANGER: WON'T WORK AT ALL LIKE THIS (AND AT ALL OTHER SPOTS IN THIS FUNCTION)
+		if (v == (char *)*(size_t *)gpixy) goto fdrawflor; goto fdrawceil;
 
 		while (1)
 		{
@@ -1705,7 +1712,7 @@ fdrawfwall:;
 				if (v[1] > c->z1) c->z1 = v[1];
 				else { do
 				{
-					c->z1--; col = (int)&v[(c->z1-v[1])*4+4];
+					c->z1--; col = (size_t)&v[(c->z1-v[1])*4+4];
 					while (dmulrethigh(gylookup[c->z1],gfc[c->cx1].x,gfc[c->cx1].y,ogx) < 0)
 					{
 						mmxcoloradd((int *)col); c->cx1--;
@@ -1714,7 +1721,7 @@ fdrawfwall:;
 				} while (v[1] != c->z1); }
 			}
 
-			if (v == (char *)*(int *)ixy) goto fdrawflor;
+			if (v == (char *)*(size_t *)ixy) goto fdrawflor;
 
 //fdrawcwall:;
 			if (v[3] != c->z0)
@@ -1722,7 +1729,7 @@ fdrawfwall:;
 				if (v[3] < c->z0) c->z0 = v[3];
 				else { do
 				{
-					c->z0++; col = (int)&v[(c->z0-v[3])*4-4];
+					c->z0++; col = (size_t)&v[(c->z0-v[3])*4-4];
 					while (dmulrethigh(gylookup[c->z0],gfc[c->cx0].x,gfc[c->cx0].y,ogx) >= 0)
 					{
 						mmxcoloradd((int *)col); c->cx0++;
@@ -1755,7 +1762,7 @@ fafterdelete:;
 				ogx = gx; gx = gpz[j];
 
 				if (gx > gxmax) break;
-				v = (char *)*(int *)ixy; c = ce;
+				v = (char *)*(size_t *)ixy; c = ce;
 			}
 				//Find highest intersecting vbuf slab
 			while (1)
@@ -1861,9 +1868,9 @@ void estnorm (int x, int y, int z, point3d *fp)
 
 	z -= ESTNORMRAD;
 	if ((z&31) <= 27) //2 <= (z&31) <= 29
-		{ lptr = (int *)((int)(&xbsbuf[xbsof+1]) + ((z&~31)>>3)); z &= 31; }
+		{ lptr = (int *)((size_t)(&xbsbuf[xbsof+1]) + ((z&~31)>>3)); z &= 31; }
 	else
-		{ lptr = (int *)((int)(&xbsbuf[xbsof+1]) + (z>>3)); z &= 7; }
+		{ lptr = (int *)((size_t)(&xbsbuf[xbsof+1]) + (z>>3)); z &= 7; }
 
 	for(yy=-ESTNORMRAD;yy<=ESTNORMRAD;yy++)
 	{
@@ -1983,7 +1990,7 @@ void setnormflash (float px, float py, float pz, int flashradius, int intens)
 					{
 						for(z=v[1];z<=v[2];z++)
 						{
-							if (z-ipz < 0) { tbuf2[i] = z-ipz; tbuf2[i+1] = (int)&v[(z-v[1])*4+4]; i += 2; }
+							if (z-ipz < 0) { tbuf2[i] = z-ipz; tbuf2[i+1] = (size_t)&v[(z-v[1])*4+4]; i += 2; }
 							else
 							{
 								//if (z-ipz < -y) continue; //TEMP HACK!!!
@@ -1998,7 +2005,7 @@ void setnormflash (float px, float py, float pz, int flashradius, int intens)
 						ceilnum = v[2]-v[1]-v[0]+2; v += v[0]*4;
 						for(z=v[3]+ceilnum;z<v[3];z++)
 						{
-							if (z < ipz) { tbuf2[i] = z-ipz; tbuf2[i+1] = (int)&v[(z-v[3])*4]; i += 2; }
+							if (z < ipz) { tbuf2[i] = z-ipz; tbuf2[i+1] = (size_t)&v[(z-v[3])*4]; i += 2; }
 							else
 							{
 								//if (z-ipz < -y) continue; //TEMP HACK!!!
@@ -2040,7 +2047,7 @@ normflash_exwhile1:;
 					{
 						for(z=v[1];z<=v[2];z++)
 						{
-							if (z-ipz < 0) { tbuf2[i] = z-ipz; tbuf2[i+1] = (int)&v[(z-v[1])*4+4]; i += 2; }
+							if (z-ipz < 0) { tbuf2[i] = z-ipz; tbuf2[i+1] = (size_t)&v[(z-v[1])*4+4]; i += 2; }
 							else
 							{
 								//if (z-ipz < -y) continue; //TEMP HACK!!!
@@ -2055,7 +2062,7 @@ normflash_exwhile1:;
 						ceilnum = v[2]-v[1]-v[0]+2; v += v[0]*4;
 						for(z=v[3]+ceilnum;z<v[3];z++)
 						{
-							if (z < ipz) { tbuf2[i] = z-ipz; tbuf2[i+1] = (int)&v[(z-v[3])*4]; i += 2; }
+							if (z < ipz) { tbuf2[i] = z-ipz; tbuf2[i+1] = (size_t)&v[(z-v[3])*4]; i += 2; }
 							else
 							{
 								//if (z-ipz < -y) continue; //TEMP HACK!!!
@@ -2137,7 +2144,7 @@ normflash_exwhile3:;
 						{
 							if (ipz-z >= flashradius) continue;
 							if (ipz-z < k) goto normflash_exwhile4;
-							tbuf2[i] = ipz-z; tbuf2[i+1] = (int)&v[(z-v[1])*4+4]; i += 2;
+							tbuf2[i] = ipz-z; tbuf2[i+1] = (size_t)&v[(z-v[1])*4+4]; i += 2;
 						}
 						if (!v[0]) break;
 						ceilnum = v[2]-v[1]-v[0]+2; v += v[0]*4;
@@ -2145,7 +2152,7 @@ normflash_exwhile3:;
 						{
 							if (ipz-z >= flashradius) continue;
 							if (ipz-z < k) goto normflash_exwhile4;
-							tbuf2[i] = ipz-z; tbuf2[i+1] = (int)&v[(z-v[3])*4]; i += 2;
+							tbuf2[i] = ipz-z; tbuf2[i+1] = (size_t)&v[(z-v[3])*4]; i += 2;
 						}
 					}
 normflash_exwhile4:;
@@ -2260,11 +2267,17 @@ void fast_hrendz(int startx, int ypos, int endx, __REGISTER int plc, __REGISTER 
 		return;
 #if 1
 	//Faster version
+	/*float dirx = optistrx*(float)startx + optiheix*(float)ypos + optiaddx;
+	float diry = optistry*(float)startx + optiheiy*(float)ypos + optiaddy;
+	float zbuf_ratio=(1<<30)/(float)(vx5.maxscandist*vx5.maxscandist);
+	float dir_length=sqrt(dirx*dirx+diry*diry);
+	float dir_veclength=sqrt(optistrx*optistrx+optistry*optistry);*/
+	//dirx += optistrx; diry += optistry;
 	unsigned int *pixelptr=(unsigned int*)(ylookup[ypos]+(startx<<2)+frameplace);
 	unsigned int *zbufptr=(unsigned int*)(((unsigned char*)pixelptr)+zbufoff);
 	int targetplc=MIN(Upper_Limit, plc+(endx-startx)*incr);
 	do{
-		*pixelptr++=angstart[plc>>16][j].col; *zbufptr++=angstart[plc>>16][j].dist; 
+		*pixelptr++=angstart[plc>>16][j].col; *zbufptr++=angstart[plc>>16][j].dist;
 		plc += incr;
 	}while(plc<targetplc && plc>0);
 #else
@@ -2288,12 +2301,10 @@ void vrendz (int sx, int sy, int p1, int iplc, int iinc, castdat *angstart[MAXXD
 	enum{
 		Upper_Limit=(MAXXDIM*4)<<16
 	};
-	while (p0 < endptr)
+	while (p0 < endptr && uurend[sx]<Upper_Limit)
 	{
 		ang_arr=angstart[uurend[sx]>>16];
 		ang_ptr=&ang_arr[iplc];
-		if(uurend[sx]>Upper_Limit || ang_arr==NULL)
-			break;
 		*p0 = ang_ptr->col;
 		*(unsigned int *)(((unsigned char*)p0)+i) = (unsigned int)ang_ptr->dist;
 		uurend[sx] += uurend[sx+MAXXDIM]; p0 ++; iplc += iinc; ++sx;
@@ -2405,7 +2416,7 @@ void opticast (unsigned int screenx1, unsigned int screenx2, unsigned int screen
 	void *castradar = (void *)((((size_t)castradarmem)+castradarsize/2+7)&~7);
 	
 	#if (__64BIT_SYSTEM__==0)
-	uurend = (unsigned int*)&uurendmem[((((int)frameplace)&4)^(((int)uurendmem)&4))>>2];
+	uurend = (unsigned int*)&uurendmem[((((size_t)frameplace)&4)^(((int)uurendmem)&4))>>2];
 	#else
 	uurend = uurendmem;
 	#endif
@@ -2420,8 +2431,7 @@ void opticast (unsigned int screenx1, unsigned int screenx2, unsigned int screen
 	ftol(gipos.z*PREC-.5f,&gposz);
 	gposxfrac[1] = gipos.x - (float)glipos.x; gposxfrac[0] = 1-gposxfrac[1];
 	gposyfrac[1] = gipos.y - (float)glipos.y; gposyfrac[0] = 1-gposyfrac[1];
-	
-	invpwr_maxscandist=1.0/(vx5.maxscandist*vx5.maxscandist/255.0);
+
 /*#if (defined(USEV5ASM) && (USEV5ASM != 0)) //if true*/
 	for(j=u=0;j<gmipnum;j++,u+=i)
 		for(i=0;i<(256>>j)+4;i++)
@@ -2490,11 +2500,12 @@ void opticast (unsigned int screenx1, unsigned int screenx2, unsigned int screen
 	x3 -= .01; x2 += .01;
 	y0 -= .01; y3 += .01;*/
 	
-	float optistrx, optistry, optiheix, optiheiy, optiaddx, optiaddy;
+	f=1.0/gihz;
 
-	f = (float)PREC / gihz;
 	optistrx = gistr.x*f; optiheix = gihei.x*f; optiaddx = gcorn[0].x*f;
 	optistry = gistr.y*f; optiheiy = gihei.y*f; optiaddy = gcorn[0].y*f;
+	
+	f = (float)PREC / gihz;
 
 	ftol(cx*65536,&cx16);
 	ftol(cy*65536,&cy16);
@@ -3609,7 +3620,7 @@ VOXLAP_DLL_FUNC void loadnul (dpoint3d *ipo, dpoint3d *ist, dpoint3d *ihe, dpoin
 /*	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);*/
 	
 	
-	vbiti = (((int)v-(int)vbuf)>>2); //# vbuf longs/vbit bits allocated
+	vbiti = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
 	vbit[vbiti>>5] = (1<<vbiti)-1;
@@ -3718,7 +3729,7 @@ int loadvxl (const char *lodfilnam)
 	}
 	unsigned int size=VSID*VSID;
 	memset(&sptr[size],0,sizeof(sptr)-size*4);
-	vbiti = (((int)v-(int)vbuf)>>2); //# vbuf longs/vbit bits allocated
+	vbiti = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
 	vbit[vbiti>>5] = (1<<vbiti)-1;
@@ -3750,7 +3761,7 @@ int Vox_vloadvxl (const char *data, unsigned int size)
 		v += ((((int)v[2])-((int)v[1])+2)<<2);
 	}
 	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
-	vbiti = (((int)v-(int)vbuf)>>2); //# vbuf longs/vbit bits allocated
+	vbiti = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
 	vbit[vbiti>>5] = (1<<vbiti)-1;
@@ -4062,22 +4073,22 @@ void expandrle (int x, int y, int *uind)
 	//Returns: n: length of compressed buffer (in bytes)
 int compilerle (int *n0, int *n1, int *n2, int *n3, int *n4, char *cbuf, int px, int py)
 {
-	int i, ia, ze, zend, onext, dacnt, n, *ic;
+	int i, ia, ze, zend, onext, dacnt, n;
 	lpoint3d p;
-	char *v;
 
 	p.x = px; p.y = py;
 
 		//Generate pointers to color slabs in this format:
 		//   0:z0,  1:z1,  2:(pointer to z0's color)-z0
-	v = sptr[py*VSID+px]; ic = tbuf2;
+	char *v = sptr[py*VSID+px];
+	size_t *ic = tbuf2;
 	while (1)
 	{
 		ia = v[1]; p.z = v[2];
-		ic[0] = ia; ic[1] = p.z+1; ic[2] = ((int)v)-(ia<<2)+4; ic += 3;
+		ic[0] = ia; ic[1] = p.z+1; ic[2] = ((size_t)v)-(ia<<2)+4; ic += 3;
 		i = v[0]; if (!i) break;
 		v += i*4; ze = v[3];
-		ic[0] = ze+p.z-ia-i+2; ic[1] = ze; ic[2] = ((int)v)-(ze<<2); ic += 3;
+		ic[0] = ze+p.z-ia-i+2; ic[1] = ze; ic[2] = ((size_t)v)-(ze<<2); ic += 3;
 	}
 	ic[0] = MAXZDIM; ic[1] = MAXZDIM;
 
@@ -5540,15 +5551,16 @@ void tmaphulltrisortho (point3d *pt)
 {
 	point3d *i0, *i1;
 	float r, knmx, knmy, knmc, xinc;
-	int i, k, op, p, pe, y, yi, z, zi, sy, sy1, itop, ibot, damost;
+	size_t i, k, op, p, pe, itop, ibot, damost;
+	int zi, sy, sy1, y, yi, z;
 	int lastx[MAX(MAXYDIM,VSID)];
 
 	for(k=0;k<tricnt;k++)
 	{
 		if (nm[k].z >= 0)
-			{ damost = (int)umost; incmod3[0] = 1; incmod3[1] = 2; incmod3[2] = 0; }
+			{ damost = (size_t)umost; incmod3[0] = 1; incmod3[1] = 2; incmod3[2] = 0; }
 		else
-			{ damost = (int)dmost; incmod3[0] = 2; incmod3[1] = 0; incmod3[2] = 1; }
+			{ damost = (size_t)dmost; incmod3[0] = 2; incmod3[1] = 0; incmod3[2] = 1; }
 
 		itop = (pt[tri[(k<<2)+1]].y < pt[tri[k<<2]].y); ibot = 1-itop;
 			  if (pt[tri[(k<<2)+2]].y < pt[tri[(k<<2)+itop]].y) itop = 2;
@@ -6301,7 +6313,7 @@ void hollowfillstart (int x, int y, int z)
 
 	a.x = x; a.y = y;
 
-	v = sptr[y*VSID+x]; j = ((((int)v)-(int)vbuf)>>2); a.z0 = 0;
+	v = sptr[y*VSID+x]; j = ((((ptrdiff_t)v)-(ptrdiff_t)vbuf)>>2); a.z0 = 0;
 	while (1)
 	{
 		a.z1 = (int)(v[1]);
@@ -6322,7 +6334,7 @@ floodfill3dskip2:;
 			if (i&1) { x = a.x+(i&2)-1; if ((unsigned int)x >= VSID) continue; y = a.y; }
 				 else { y = a.y+(i&2)-1; if ((unsigned int)y >= VSID) continue; x = a.x; }
 
-			v = sptr[y*VSID+x]; j = ((((int)v)-(int)vbuf)>>2); z0 = 0;
+			v = sptr[y*VSID+x]; j = ((((ptrdiff_t)v)-(ptrdiff_t)vbuf)>>2); z0 = 0;
 			while (1)
 			{
 				z1 = (int)(v[1]);
@@ -6354,7 +6366,7 @@ void sethollowfill ()
 
 	for(i=0;i<VSID*VSID;i++)
 	{
-		j = ((((int)sptr[i])-(int)vbuf)>>2);
+		j = ((((ptrdiff_t)sptr[i])-(ptrdiff_t)vbuf)>>2);
 		for(v=sptr[i];v[0];v+=v[0]*4) { vbit[j>>5] &= ~(1<<j); j += 2; }
 		vbit[j>>5] &= ~(1<<j);
 	}
@@ -6368,7 +6380,7 @@ void sethollowfill ()
 	for(y=0;y<VSID;y++)
 		for(x=0;x<VSID;x++,i++)
 		{
-			j = ((((int)sptr[i])-(int)vbuf)>>2);
+			j = ((((ptrdiff_t)sptr[i])-(ptrdiff_t)vbuf)>>2);
 			v = sptr[i]; z0 = MAXZDIM;
 			while (1)
 			{
@@ -6399,8 +6411,8 @@ static int *pathashead, pathashcnt, pathashmax;
 static void initpathash ()
 {
 	patbuf = (lpoint2d *)radar;
-	pathashead = (int *)(((int)patbuf)+(1<<LPATBUFSIZ)*sizeof(lpoint2d));
-	pathashdat = (lpoint3d *)(((int)pathashead)+((1<<LPATHASHSIZ)*4));
+	pathashead = (int *)(((size_t)patbuf)+(1<<LPATBUFSIZ)*sizeof(lpoint2d));
+	pathashdat = (lpoint3d *)(((size_t)pathashead)+((1<<LPATHASHSIZ)*4));
 	pathashmax = ((MAX((MAXXDIM*MAXYDIM*27)>>1,(VSID+4)*3*256*4)-((1<<LPATBUFSIZ)*sizeof(lpoint2d))-(1<<LPATHASHSIZ)*4)/12);
 	memset(pathashead,-1,(1<<LPATHASHSIZ)*4);
 	pathashcnt = 0;
@@ -6438,21 +6450,21 @@ int findpath (int *pathpos, int pathmax, lpoint3d *p1, lpoint3d *p0)
 {
 	int i, j, k, x, y, z, c, nc, xx, yy, zz, bufr, bufw, pcnt;
 
-	if (!(((int)getcube(p0->x,p0->y,p0->z))&~1))
+	if (!(((size_t)getcube(p0->x,p0->y,p0->z))&~1))
 	{
 		for(i=5;i>=0;i--)
 		{
 			x = p0->x+(int)cdir[i*4]; y = p0->y+(int)cdir[i*4+1]; z = p0->z+(int)cdir[i*4+2];
-			if (((int)getcube(x,y,z))&~1) { p0->x = x; p0->y = y; p0->z = z; break; }
+			if (((size_t)getcube(x,y,z))&~1) { p0->x = x; p0->y = y; p0->z = z; break; }
 		}
 		if (i < 0) return(0);
 	}
-	if (!(((int)getcube(p1->x,p1->y,p1->z))&~1))
+	if (!(((size_t)getcube(p1->x,p1->y,p1->z))&~1))
 	{
 		for(i=5;i>=0;i--)
 		{
 			x = p1->x+(int)cdir[i*4]; y = p1->y+(int)cdir[i*4+1]; z = p1->z+(int)cdir[i*4+2];
-			if (((int)getcube(x,y,z))&~1) { p1->x = x; p1->y = y; p1->z = z; break; }
+			if (((size_t)getcube(x,y,z))&~1) { p1->x = x; p1->y = y; p1->z = z; break; }
 		}
 		if (i < 0) return(0);
 	}
@@ -6474,7 +6486,7 @@ int findpath (int *pathpos, int pathmax, lpoint3d *p1, lpoint3d *p0)
 			//nc = c+(int)cdir[i*4+3]; //More accurate but lowers max distance a lot!
 			//if (((k = getcube(xx,yy,zz))&~1) && ((unsigned int)nc < (unsigned int)readpathash(j)))
 
-			if (((k = ((int)getcube(xx,yy,zz)))&~1) && (readpathash(j) < 0))
+			if (((k = ((size_t)getcube(xx,yy,zz)))&~1) && (readpathash(j) < 0))
 			{
 				nc = c+(int)cdir[i*4+3];
 				if ((xx == p1->x) && (yy == p1->y) && (zz == p1->z)) { c = nc; goto pathfound; }
@@ -6763,9 +6775,10 @@ static int64_t rgbmask64 = 0xffffff00ffffff;
 void drawtile (int tf, int tp, int tx, int ty, int tcx, int tcy,
 					int sx, int sy, int xz, int yz, int black, int white)
 {
-	int sx0, sy0, sx1, sy1, x0, y0, x1, y1, x, y, u, v, ui, vi, uu, vv;
+	int sx0, sy0, sx1, sy1, x0, y0, x1, y1, x, y, u, v, ui, vi, vv;
 	int i, j, a;
 	unsigned char *p;
+	size_t uu;
 
 	if (!tf) return;
 	sx0 = sx - mulshr16(tcx,xz); sx1 = sx0 + xz*tx;
@@ -6780,7 +6793,7 @@ void drawtile (int tf, int tp, int tx, int ty, int tcx, int tcy,
 		{
 			p = ylookup[y] + frameplace; j = (vv>>16)*tp + tf;
 			for(x=x0,uu=x*ui+u;x<x1;x++,uu+=ui)
-			*(int *)((x<<2)+p) = *(int *)(((uu>>16)<<2) + j);
+			*(int *)(p+(x<<2)) = *(int *)(((uu>>16)<<2) + j);
 		}
 	}
 	else //Use alpha for masking
@@ -6936,446 +6949,6 @@ void drawline3d (float x0, float y0, float z0, float x1, float y1, float z1, int
 #else
 	drawline2d(x0*ox+gihx,y0*ox+gihy,x1*oy+gihx,y1*oy+gihy,col);
 #endif
-}
-/**
- * Draw a solid-color filled sphere on screen (useful for particle effects)
- * @param ox center of sphere
- * @param oy center of sphere
- * @param oz center of sphere
- * @param bakrad radius of sphere. NOTE: if bakrad is negative, it uses
- *               Z-buffering with abs(radius), otherwise no Z-buffering
- * @param col 32-bit color of sphere
- */
-//NOTE: Might be broken (transition from int frameplace to unsigned char* frameplace)
-void drawspherefill (float ox, float oy, float oz, float bakrad, int col)
-{
-	float a, b, c, d, e, f, g, h, t, cxcx, cycy, Za, Zb, Zc, ysq;
-	float r2a, rr2a, nb, nbi, isq, isqi, isqii, cx, cy, cz, rad;
-	int sx1, sy1, sx2, sx;
-	unsigned char *p, *sy2;
-
-	rad = fabs(bakrad);
-#if (USEZBUFFER == 0)
-	bakrad = rad;
-#endif
-
-	ox -= gipos.x; oy -= gipos.y; oz -= gipos.z;
-	cz = ox*gifor.x + oy*gifor.y + oz*gifor.z; if (cz < SCISDIST) return;
-	cx = ox*gistr.x + oy*gistr.y + oz*gistr.z;
-	cy = ox*gihei.x + oy*gihei.y + oz*gihei.z;
-
-		//3D Sphere projection (see spherast.txt for derivation) (13 multiplies)
-	cxcx = cx*cx; cycy = cy*cy; g = rad*rad - cxcx - cycy - cz*cz;
-	a = g + cxcx; if (!a) return;
-	b = cx*cy; b += b;
-	c = g + cycy;
-	f = gihx*cx + gihy*cy - gihz*cz;
-	d = -cx*f - gihx*g; d += d;
-	e = -cy*f - gihy*g; e += e;
-	f = f*f + g*(gihx*gihx+gihy*gihy+gihz*gihz);
-
-		//isq = (b*b-4*a*c)yý + (2*b*d-4*a*e)y + (d*d-4*a*f) = 0
-	Za = b*b - a*c*4; if (!Za) return;
-	Zb = b*d*2 - a*e*4;
-	Zc = d*d - a*f*4;
-	ysq = Zb*Zb - Za*Zc*4; if (ysq <= 0) return;
-	t = sqrt(ysq); //fsqrtasm(&ysq,&t);
-	h = .5f / Za;
-	ftol((-Zb+t)*h,&sy1); if (sy1 < 0) sy1 = 0;
-	//ftol((-Zb-t)*h,&(int)sy2);
-	sy2=(unsigned char*)(int)((-Zb-t)*h);
-	if (sy2 > (unsigned char*)yres_voxlap) sy2 = (unsigned char*)yres_voxlap;
-	if ((unsigned char*)sy1 >= sy2) return;
-	r2a = .5f / a; rr2a = r2a*r2a;
-	nbi = -b*r2a; nb = nbi*(float)sy1-d*r2a;
-	h = Za*(float)sy1; isq = ((float)sy1*(h+Zb)+Zc)*rr2a;
-	isqi = (h+h+Za+Zb)*rr2a; isqii = Za*rr2a*2;
-
-	p = ylookup[sy1]+frameplace;
-	sy2 = ylookup[(int)sy2]+frameplace;
-#if (USEZBUFFER == 1)
-	if ((*(int *)&bakrad) >= 0)
-	{
-#endif
-		while (1)  //(a)xý + (b*y+d)x + (c*y*y+e*y+f) = 0
-		{
-			t = sqrt(isq); //fsqrtasm(&isq,&t);
-			ftol(nb-t,&sx1); if (sx1 < 0) sx1 = 0;
-			ftol(nb+t,&sx2);
-			sx2 = MIN(sx2,xres_voxlap)-sx1;
-			if (sx2 > 0) clearbuf((void *)((sx1<<2)+p),sx2,col);
-			p += bytesperline; if (p >= sy2) return;
-			isq += isqi; isqi += isqii; nb += nbi;
-		}
-#if (USEZBUFFER == 1)
-	}
-	else
-	{     //Use Z-buffering
-
-		if (ofogdist >= 0) //If fog enabled...
-		{
-			ftol(sqrt(ox*ox + oy*oy),&sx); //Use cylindrical x-y distance for fog
-			if (sx > 1023) sx = 1023;
-			sx = (int)(*(short *)&foglut[sx]);
-			col = ((((( vx5.fogcol     &255)-( col     &255))*sx)>>15)    ) +
-					((((((vx5.fogcol>> 8)&255)-((col>> 8)&255))*sx)>>15)<< 8) +
-					((((((vx5.fogcol>>16)&255)-((col>>16)&255))*sx)>>15)<<16) + col;
-		}
-
-		while (1)  //(a)xý + (b*y+d)x + (c*y*y+e*y+f) = 0
-		{
-			t = sqrt(isq); //fsqrtasm(&isq,&t);
-			ftol(nb-t,&sx1); if (sx1 < 0) sx1 = 0;
-			ftol(nb+t,&sx2);
-			if (sx2 > xres_voxlap) sx2 = xres_voxlap;
-			for(sx=sx1;sx<sx2;sx++)
-				if (*(int *)&cz < *(int *)(p+(sx<<2)+zbufoff))
-				{
-					*(int *)(p+(sx<<2)+zbufoff) = *(int *)&cz;
-					*(int *)(p+(sx<<2)) = col;
-				}
-			sy1++;
-			p += bytesperline; if (p >= sy2) return;
-			isq += isqi; isqi += isqii; nb += nbi;
-		}
-	}
-#endif
-}
-
-/**
- * Draw a texture-mapped quadrilateral to the screen. Drawpicinquad projects
- * the source texture with perspective into the 4 coordinates specified.
- *
- * @param rpic source pointer to top-left corner
- * @param rbpl source pitch (bytes per line)
- * @param rxsiz source dimensions of texture/frame
- * @param rysiz source dimensions of texture/frame
- *
- * @param wpic destination pointer to top-left corner
- * @param wbpl destination pitch (bytes per line)
- * @param wxsiz destination dimensions of texture/frame
- * @param wysiz destination dimensions of texture/frame
- *
- * @param x0 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param x1 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param x2 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param x3 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- *
- * @param y0 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param y1 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param y2 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- * @param y3 the 4 points of the quadrilateral in the destination texture/frame.
- *           The points must be in loop order.
- *
- *			 THAT MEANS: FIRST UPPER LEFT, THEN UPPER RIGHT, THEN LOWER RIGHT
- *			 THEN LOWER LEFT - LeCom
- */
-void drawpicinquad (int rpic, int rbpl, int rxsiz, int rysiz,
-						  int wpic, int wbpl, int wxsiz, int wysiz,
-						  float x0, float y0, float x1, float y1,
-						  float x2, float y2, float x3, float y3)
-{
-	float px[4], py[4], k0, k1, k2, k3, k4, k5, k6, k7, k8;
-	float t, u, v, dx, dy, l0, l1, m0, m1, m2, n0, n1, n2, r;
-	int i, j, k, l, imin, imax, sx, sxe, sy, sy1, dd, uu, vv, ddi, uui, vvi;
-	int x, xi, *p, *pe, uvmax, iu, iv;
-	int lastx[MAX(MAXYDIM,VSID)];
-
-	px[0] = x0; px[1] = x1; px[2] = x2; px[3] = x3;
-	py[0] = y0; py[1] = y1; py[2] = y2; py[3] = y3;
-
-		//This code projects 4 point2D's into a t,u,v screen-projection matrix
-		//
-		//Derivation: (given 4 known (sx,sy,kt,ku,kv) pairs, solve for k0-k8)
-		//   kt = k0*sx + k1*sy + k2
-		//   ku = k3*sx + k4*sy + k5
-		//   kv = k6*sx + k7*sy + k8
-		//0 = (k3*x0 + k4*y0 + k5) / (k0*x0 + k1*y0 + k2) / rxsiz
-		//0 = (k6*x0 + k7*y0 + k8) / (k0*x0 + k1*y0 + k2) / rysiz
-		//1 = (k3*x1 + k4*y1 + k5) / (k0*x1 + k1*y1 + k2) / rxsiz
-		//0 = (k6*x1 + k7*y1 + k8) / (k0*x1 + k1*y1 + k2) / rysiz
-		//1 = (k3*x2 + k4*y2 + k5) / (k0*x2 + k1*y2 + k2) / rxsiz
-		//1 = (k6*x2 + k7*y2 + k8) / (k0*x2 + k1*y2 + k2) / rysiz
-		//0 = (k3*x3 + k4*y3 + k5) / (k0*x3 + k1*y3 + k2) / rxsiz
-		//1 = (k6*x3 + k7*y3 + k8) / (k0*x3 + k1*y3 + k2) / rysiz
-		//   40*, 28+, 1~, 30W
-	k3 = y3 - y0; k4 = x0 - x3; k5 = x3*y0 - x0*y3;
-	k6 = y0 - y1; k7 = x1 - x0; k8 = x0*y1 - x1*y0;
-	n0 = x2*y3 - x3*y2; n1 = x3*y1 - x1*y3; n2 = x1*y2 - x2*y1;
-	l0 = k6*x2 + k7*y2 + k8;
-	l1 = k3*x2 + k4*y2 + k5;
-	t = n0 + n1 + n2; dx = (float)rxsiz*t*l0; dy = (float)rysiz*t*l1;
-	t = l0*l1;
-	l0 *= (k3*x1 + k4*y1 + k5);
-	l1 *= (k6*x3 + k7*y3 + k8);
-	m0 = l1 - t; m1 = l0 - l1; m2 = t - l0;
-	k0 = m0*y1 + m1*y2 + m2*y3;
-	k1 = -(m0*x1 + m1*x2 + m2*x3);
-	k2 = n0*l0 + n1*t + n2*l1;
-	k3 *= dx; k4 *= dx; k5 *= dx;
-	k6 *= dy; k7 *= dy; k8 *= dy;
-
-		//Make sure k's are in good range for conversion to integers...
-	t = fabs(k0);
-	if (fabs(k1) > t) t = fabs(k1);
-	if (fabs(k2) > t) t = fabs(k2);
-	if (fabs(k3) > t) t = fabs(k3);
-	if (fabs(k4) > t) t = fabs(k4);
-	if (fabs(k5) > t) t = fabs(k5);
-	if (fabs(k6) > t) t = fabs(k6);
-	if (fabs(k7) > t) t = fabs(k7);
-	if (fabs(k8) > t) t = fabs(k8);
-	t = -268435456.0 / t;
-	k0 *= t; k1 *= t; k2 *= t;
-	k3 *= t; k4 *= t; k5 *= t;
-	k6 *= t; k7 *= t; k8 *= t;
-	ftol(k0,&ddi);
-
-	imin = 0; imax = 0;
-	for(i=1;i<4;i++)
-	{
-		if (py[i] < py[imin]) imin = i;
-		if (py[i] > py[imax]) imax = i;
-	}
-
-	uvmax = (rysiz-1)*rbpl + (rxsiz<<2);
-
-	i = imax;
-	do
-	{
-		j = ((i+1)&3);
-			//offset would normally be -.5, but need to bias by +1.0
-		ftol(py[j]+.5,&sy); if (sy < 0) sy = 0;
-		ftol(py[i]+.5,&sy1); if (sy1 > wysiz) sy1 = wysiz;
-		if (sy1 > sy)
-		{
-			ftol((px[i]-px[j])*4096.0/(py[i]-py[j]),&xi);
-			ftol(((float)sy-py[j])*(float)xi + px[j]*4096.0 + 4096.0,&x);
-			for(;sy<sy1;sy++,x+=xi) lastx[sy] = (x>>12);
-		}
-		i = j;
-	} while (i != imin);
-	do
-	{
-		j = ((i+1)&3);
-			//offset would normally be -.5, but need to bias by +1.0
-		ftol(py[i]+.5,&sy); if (sy < 0) sy = 0;
-		ftol(py[j]+.5,&sy1); if (sy1 > wysiz) sy1 = wysiz;
-		if (sy1 > sy)
-		{
-			ftol((px[j]-px[i])*4096.0/(py[j]-py[i]),&xi);
-			ftol(((float)sy-py[i])*(float)xi + px[i]*4096.0 + 4096.0,&x);
-			for(;sy<sy1;sy++,x+=xi)
-			{
-				sx = lastx[sy]; if (sx < 0) sx = 0;
-				sxe = (x>>12); if (sxe > wxsiz) sxe = wxsiz;
-				if (sx >= sxe && 0) continue;
-				t = k0*(float)sx + k1*(float)sy + k2; r = 1.0 / t;
-				u = k3*(float)sx + k4*(float)sy + k5; ftol(u*r-.5,&iu);
-				v = k6*(float)sx + k7*(float)sy + k8; ftol(v*r-.5,&iv);
-				ftol(t,&dd);
-				ftol((float)iu*k0 - k3,&uui); ftol((float)iu*t - u,&uu);
-				ftol((float)iv*k0 - k6,&vvi); ftol((float)iv*t - v,&vv);
-				if (k3*t < u*k0) k =    -4; else { uui = -(uui+ddi); uu = -(uu+dd); k =    4; }
-				if (k6*t < v*k0) l = -rbpl; else { vvi = -(vvi+ddi); vv = -(vv+dd); l = rbpl; }
-				iu = iv*rbpl + (iu<<2);
-				p  = (int *)(sy*wbpl+(sx<<2)+wpic);
-				pe = (int *)(sy*wbpl+(sxe<<2)+wpic);
-				do
-				{
-					if ((unsigned int)iu < uvmax) p[0] = *(int *)(rpic+iu);
-					dd += ddi;
-					uu += uui; while (uu < 0) { iu += k; uui -= ddi; uu -= dd; }
-					vv += vvi; while (vv < 0) { iu += l; vvi -= ddi; vv -= dd; }
-					p++;
-				} while (p < pe);
-			}
-		}
-		i = j;
-	} while (i != imax);
-}
-
-__ALIGN(16) static float dpqdistlut[MAXXDIM];
-__ALIGN(16) static float dpqmulval[4] = {0,1,2,3}, dpqfour[4] = {4,4,4,4};
-__ALIGN(8)  static float dpq3dn[4];
-void drawpolyquad (int rpic, int rbpl, int rxsiz, int rysiz,
-				   float x0, float y0, float z0, float u0, float v0,
-				   float x1, float y1, float z1, float u1, float v1,
-				   float x2, float y2, float z2, float u2, float v2,
-				   float x3, float y3, float z3)
-{
-	point3d fp, fp2;
-	float px[6], py[6], pz[6], pu[6], pv[6], px2[4], py2[4], pz2[4], pu2[4], pv2[4];
-	float f, t, u, v, r, nx, ny, nz, ox, oy, oz, scaler;
-	float dx, dy, db, ux, uy, ub, vx, vy, vb;
-	int i, j, k, l, imin, imax, sx, sxe, sy, sy1;
-	int x, xi, *p, *pe, uvmax, iu, iv, n;
-	int dd, uu, vv, ddi, uui, vvi, distlutoffs;
-	int lastx[MAX(MAXYDIM,VSID)];
-
-	px2[0] = x0; py2[0] = y0; pz2[0] = z0; pu2[0] = u0; pv2[0] = v0;
-	px2[1] = x1; py2[1] = y1; pz2[1] = z1; pu2[1] = u1; pv2[1] = v1;
-	px2[2] = x2; py2[2] = y2; pz2[2] = z2; pu2[2] = u2; pv2[2] = v2;
-	px2[3] = x3; py2[3] = y3; pz2[3] = z3;
-
-		//Calculate U-V coordinate of 4th point on quad (based on 1st 3)
-	nx = (y1-y0)*(z2-z0) - (z1-z0)*(y2-y0);
-	ny = (z1-z0)*(x2-x0) - (x1-x0)*(z2-z0);
-	nz = (x1-x0)*(y2-y0) - (y1-y0)*(x2-x0);
-	if ((fabs(nx) > fabs(ny)) && (fabs(nx) > fabs(nz)))
-	{     //(y1-y0)*u + (y2-y0)*v = (y3-y0)
-			//(z1-z0)*u + (z2-z0)*v = (z3-z0)
-		f = 1/nx;
-		u = ((y3-y0)*(z2-z0) - (z3-z0)*(y2-y0))*f;
-		v = ((y1-y0)*(z3-z0) - (z1-z0)*(y3-y0))*f;
-	}
-	else if (fabs(ny) > fabs(nz))
-	{     //(x1-x0)*u + (x2-x0)*v = (x3-x0)
-			//(z1-z0)*u + (z2-z0)*v = (z3-z0)
-		f = -1/ny;
-		u = ((x3-x0)*(z2-z0) - (z3-z0)*(x2-x0))*f;
-		v = ((x1-x0)*(z3-z0) - (z1-z0)*(x3-x0))*f;
-	}
-	else
-	{     //(x1-x0)*u + (x2-x0)*v = (x3-x0)
-			//(y1-y0)*u + (y2-y0)*v = (y3-y0)
-		f = 1/nz;
-		u = ((x3-x0)*(y2-y0) - (y3-y0)*(x2-x0))*f;
-		v = ((x1-x0)*(y3-y0) - (y1-y0)*(x3-x0))*f;
-	}
-	pu2[3] = (u1-u0)*u + (u2-u0)*v + u0;
-	pv2[3] = (v1-v0)*u + (v2-v0)*v + v0;
-
-
-	for(i=4-1;i>=0;i--) //rotation
-	{
-		fp.x = px2[i]-gipos.x; fp.y = py2[i]-gipos.y; fp.z = pz2[i]-gipos.z;
-		px2[i] = fp.x*gistr.x + fp.y*gistr.y + fp.z*gistr.z;
-		py2[i] = fp.x*gihei.x + fp.y*gihei.y + fp.z*gihei.z;
-		pz2[i] = fp.x*gifor.x + fp.y*gifor.y + fp.z*gifor.z;
-	}
-
-		//Clip to SCISDIST plane
-	n = 0;
-	for(i=0;i<4;i++)
-	{
-		j = ((i+1)&3);
-		if (pz2[i] >= SCISDIST) { px[n] = px2[i]; py[n] = py2[i]; pz[n] = pz2[i]; pu[n] = pu2[i]; pv[n] = pv2[i]; n++; }
-		if ((pz2[i] >= SCISDIST) != (pz2[j] >= SCISDIST))
-		{
-			f = (SCISDIST-pz2[i])/(pz2[j]-pz2[i]);
-			px[n] = (px2[j]-px2[i])*f + px2[i];
-			py[n] = (py2[j]-py2[i])*f + py2[i];
-			pz[n] = SCISDIST;
-			pu[n] = (pu2[j]-pu2[i])*f + pu2[i];
-			pv[n] = (pv2[j]-pv2[i])*f + pv2[i]; n++;
-		}
-	}
-	if (n < 3) return;
-
-	for(i=n-1;i>=0;i--) //projection
-	{
-		pz[i] = 1/pz[i]; f = pz[i]*gihz;
-		px[i] = px[i]*f + gihx;
-		py[i] = py[i]*f + gihy;
-	}
-
-		//General equations:
-		//pz[i] = (px[i]*gdx + py[i]*gdy + gdo)
-		//pu[i] = (px[i]*gux + py[i]*guy + guo)/pz[i]
-		//pv[i] = (px[i]*gvx + py[i]*gvy + gvo)/pz[i]
-		//
-		//px[0]*gdx + py[0]*gdy + 1*gdo = pz[0]
-		//px[1]*gdx + py[1]*gdy + 1*gdo = pz[1]
-		//px[2]*gdx + py[2]*gdy + 1*gdo = pz[2]
-		//
-		//px[0]*gux + py[0]*guy + 1*guo = pu[0]*pz[0] (pu[i] premultiplied by pz[i] above)
-		//px[1]*gux + py[1]*guy + 1*guo = pu[1]*pz[1]
-		//px[2]*gux + py[2]*guy + 1*guo = pu[2]*pz[2]
-		//
-		//px[0]*gvx + py[0]*gvy + 1*gvo = pv[0]*pz[0] (pv[i] premultiplied by pz[i] above)
-		//px[1]*gvx + py[1]*gvy + 1*gvo = pv[1]*pz[1]
-		//px[2]*gvx + py[2]*gvy + 1*gvo = pv[2]*pz[2]
-	pu[0] *= pz[0]; pu[1] *= pz[1]; pu[2] *= pz[2];
-	pv[0] *= pz[0]; pv[1] *= pz[1]; pv[2] *= pz[2];
-	ox = py[1]-py[2]; oy = py[2]-py[0]; oz = py[0]-py[1];
-	r = 1.0 / (ox*px[0] + oy*px[1] + oz*px[2]);
-	dx = (ox*pz[0] + oy*pz[1] + oz*pz[2])*r;
-	ux = (ox*pu[0] + oy*pu[1] + oz*pu[2])*r;
-	vx = (ox*pv[0] + oy*pv[1] + oz*pv[2])*r;
-	ox = px[2]-px[1]; oy = px[0]-px[2]; oz = px[1]-px[0];
-	dy = (ox*pz[0] + oy*pz[1] + oz*pz[2])*r;
-	uy = (ox*pu[0] + oy*pu[1] + oz*pu[2])*r;
-	vy = (ox*pv[0] + oy*pv[1] + oz*pv[2])*r;
-	db = pz[0] - px[0]*dx - py[0]*dy;
-	ub = pu[0] - px[0]*ux - py[0]*uy;
-	vb = pv[0] - px[0]*vx - py[0]*vy;
-
-	imin = (py[1]<py[0]); imax = 1-imin;
-	for(i=n-1;i>1;i--)
-	{
-		if (py[i] < py[imin]) imin = i;
-		if (py[i] > py[imax]) imax = i;
-	}
-
-	i = imax;
-	do
-	{
-		j = i+1; if (j >= n) j = 0;
-			//offset would normally be -.5, but need to bias by +1.0
-		ftol(py[j]+.5,&sy); if (sy < 0) sy = 0;
-		ftol(py[i]+.5,&sy1); if (sy1 > yres_voxlap) sy1 = yres_voxlap;
-		if (sy1 > sy)
-		{
-			ftol((px[i]-px[j])*4096.0/(py[i]-py[j]),&xi);
-			ftol(((float)sy-py[j])*(float)xi + px[j]*4096.0 + 4096.0,&x);
-			for(;sy<sy1;sy++,x+=xi) lastx[sy] = (x>>12);
-		}
-		i = j;
-	} while (i != imin);
-	do
-	{
-		j = i+1; if (j >= n) j = 0;
-			//offset would normally be -.5, but need to bias by +1.0
-		ftol(py[i]+.5,&sy); if (sy < 0) sy = 0;
-		ftol(py[j]+.5,&sy1); if (sy1 > yres_voxlap) sy1 = yres_voxlap;
-		if (sy1 > sy)
-		{
-			ftol((px[j]-px[i])*4096.0/(py[j]-py[i]),&xi);
-			ftol(((float)sy-py[i])*(float)xi + px[i]*4096.0 + 4096.0,&x);
-			for(;sy<sy1;sy++,x+=xi)
-			{
-				sx = lastx[sy]; if (sx < 0) sx = 0;
-				sxe = (x>>12); if (sxe > xres_voxlap) sxe = xres_voxlap;
-				if (sx >= sxe) continue;
-				p  = (int *)(sy*bytesperline+(sx<<2)+frameplace);
-				pe = (int *)(sy*bytesperline+(sxe<<2)+frameplace);
-					//Brute force
-				do
-				{
-					f = 1.f/(dx*(float)sx + dy*(float)sy + db);
-					if (f < *(float *)(((int)p)+zbufoff))
-					{
-						*(float *)(((int)p)+zbufoff) = f;
-						ftol((ux*(float)sx + uy*(float)sy + ub)*f-.5,&iu);
-						ftol((vx*(float)sx + vy*(float)sy + vb)*f-.5,&iv);
-						if ((unsigned int)iu >= rxsiz) iu = 0;
-						if ((unsigned int)iv >= rysiz) iv = 0;
-						p[0] = *(int *)(iv*rbpl+(iu<<2)+rpic);
-					}
-					p++; sx++;
-				} while (p < pe);
-			}
-		}
-		i = j;
-	} while (i != imax);
 }
 
 //--------------------------  Name hash code begins --------------------------
@@ -7590,9 +7163,9 @@ kv6data *genmipkv6 (kv6data *kv6)
 	nkv6->namoff = 0;
 	nkv6->lowermip = 0;
 
-	xptr = (int *)(((int)nkv6) + sizeof(kv6data));
-	xyptr = (unsigned short *)(((int)xptr) + (xs<<2));
-	voxptr = (kv6voxtype *)(((int)xyptr) + xysiz);
+	xptr = (int *)(((size_t)nkv6) + sizeof(kv6data));
+	xyptr = (unsigned short *)(((size_t)xptr) + (xs<<2));
+	voxptr = (kv6voxtype *)(((size_t)xyptr) + xysiz);
 	n = 0;
 
 	v0[0] = kv6->vox; sxyi2 = kv6->ylen; sxyi2i = (kv6->ysiz<<1);
@@ -7666,9 +7239,9 @@ kv6data *genmipkv6 (kv6data *kv6)
 
 	nkv6->leng = sizeof(kv6data) + (xs<<2) + xysiz + n*sizeof(kv6voxtype);
 	nkv6 = (kv6data *)realloc(nkv6,nkv6->leng); if (!nkv6) return(0);
-	nkv6->xlen = (unsigned int *)(((int)nkv6) + sizeof(kv6data));
-	nkv6->ylen = (unsigned short *)(((int)nkv6->xlen) + (xs<<2));
-	nkv6->vox = (kv6voxtype *)(((int)nkv6->ylen) + xysiz);
+	nkv6->xlen = (unsigned int *)(((size_t)nkv6) + sizeof(kv6data));
+	nkv6->ylen = (unsigned short *)(((size_t)nkv6->xlen) + (xs<<2));
+	nkv6->vox = (kv6voxtype *)(((size_t)nkv6->ylen) + xysiz);
 	nkv6->numvoxs = n;
 	kv6->lowermip = nkv6;
 	return(nkv6);
@@ -7718,7 +7291,7 @@ kv6data *loadkv6 (const char *filnam)
 		newkv6->numvoxs = 0;
 		newkv6->namoff = 0;
 		newkv6->lowermip = 0;
-		newkv6->vox = (kv6voxtype *)(((int)newkv6)+sizeof(kv6data));
+		newkv6->vox = (kv6voxtype *)(((size_t)newkv6)+sizeof(kv6data));
 		newkv6->xlen = (unsigned int *)newkv6->vox;
 		newkv6->ylen = (unsigned short *)newkv6->xlen;
 		return(newkv6);
@@ -7729,15 +7302,15 @@ kv6data *loadkv6 (const char *filnam)
 	i = tk.numvoxs*sizeof(kv6voxtype) + tk.xsiz*4 + tk.xsiz*tk.ysiz*2;
 	newkv6 = (kv6data *)malloc(i+sizeof(kv6data));
 	if (!newkv6) { fclose(fil); return(0); }
-	if (((int)newkv6)&3) evilquit("getkv6 malloc not 32-bit aligned!");
+	if (((size_t)newkv6)&3) evilquit("getkv6 malloc not 32-bit aligned!");
 
 	newkv6->leng = i+sizeof(kv6data);
 	memcpy(&newkv6->xsiz,&tk.xsiz,28);
 	newkv6->namoff = 0;
 	newkv6->lowermip = 0;
-	newkv6->vox = (kv6voxtype *)(((int)newkv6)+sizeof(kv6data));
-	newkv6->xlen = (unsigned int *)(((int)newkv6->vox)+tk.numvoxs*sizeof(kv6voxtype));
-	newkv6->ylen = (unsigned short *)(((int)newkv6->xlen) + tk.xsiz*4);
+	newkv6->vox = (kv6voxtype *)(((size_t)newkv6)+sizeof(kv6data));
+	newkv6->xlen = (unsigned int *)(((size_t)newkv6->vox)+tk.numvoxs*sizeof(kv6voxtype));
+	newkv6->ylen = (unsigned short *)(((size_t)newkv6->xlen) + tk.xsiz*4);
 
 	fread(newkv6->vox, i, 1, fil);
 	fclose(fil);
@@ -7903,7 +7476,7 @@ static kv6voxtype *getvptr (kv6data *kv, int x, int y)
 }
 
 #define VFIFSIZ 16384 //SHOULDN'T BE STATIC ALLOCATION!!!
-static int vfifo[VFIFSIZ];
+static size_t vfifo[VFIFSIZ];
 static void floodsucksprite (vx5sprite *spr, kv6data *kv, int ox, int oy,
 									  kv6voxtype *v0, kv6voxtype *v1)
 {
@@ -7913,11 +7486,11 @@ static void floodsucksprite (vx5sprite *spr, kv6data *kv, int ox, int oy,
 
 	x0 = x1 = ox; y0 = y1 = oy; z0 = v0->z; z1 = v1->z;
 
-	n = (((int)v1)-((int)v0))/sizeof(kv6voxtype)+1;
+	n = (((ptrdiff_t)v1)-((ptrdiff_t)v0))/sizeof(kv6voxtype)+1;
 	v1->vis &= ~64;
 
 	vfifo[0] = ox; vfifo[1] = oy;
-	vfifo[2] = (int)v0; vfifo[3] = (int)v1;
+	vfifo[2] = (size_t)v0; vfifo[3] = (size_t)v1;
 	vfif0 = 0; vfif1 = 4;
 
 	while (vfif0 < vfif1)
@@ -7965,8 +7538,8 @@ static void floodsucksprite (vx5sprite *spr, kv6data *kv, int ox, int oy,
 						goto floodsuckend;
 					}
 					vfifo[i] = x; vfifo[i+1] = y;
-					vfifo[i+2] = (int)ov; vfifo[i+3] = (int)v;
-					n += (((int)v)-((int)ov))/sizeof(kv6voxtype)+1;
+					vfifo[i+2] = (size_t)ov; vfifo[i+3] = (size_t)v;
+					n += (((ptrdiff_t)v)-((ptrdiff_t)ov))/sizeof(kv6voxtype)+1;
 					v->vis &= ~64;
 				}
 			}
@@ -7987,9 +7560,9 @@ floodsuckend:;
 	kv6->numvoxs = n;
 	kv6->namoff = 0;
 	kv6->lowermip = 0;
-	kv6->vox = (kv6voxtype *)(((int)kv6)+sizeof(kv6data));
-	kv6->xlen = (unsigned int *)(((int)kv6->vox)+n*sizeof(kv6voxtype));
-	kv6->ylen = (unsigned short *)(((int)kv6->xlen)+(x1-x0)*4);
+	kv6->vox = (kv6voxtype *)(((size_t)kv6)+sizeof(kv6data));
+	kv6->xlen = (unsigned int *)(((size_t)kv6->vox)+n*sizeof(kv6voxtype));
+	kv6->ylen = (unsigned short *)(((size_t)kv6->xlen)+(x1-x0)*4);
 
 		//Extract sub-KV6 to newly allocated kv6data
 	v3 = kv6->vox; n = 0;
@@ -8631,8 +8204,8 @@ void setkv6 (vx5sprite *spr, int dacol)
 
 	shpit = bx1-bx0; i = (by1-by0)*shpit*sizeof(shead[0]);
 		//Make sure to use array that's big enough: umost is 1MB
-	shead = (int *)(((int)umost) - (by0*shpit+bx0)*sizeof(shead[0]));
-	slst = (slstype *)(((int)umost)+i);
+	shead = (int *)(((size_t)umost) - (by0*shpit+bx0)*sizeof(shead[0]));
+	slst = (slstype *)(((size_t)umost)+i);
 	scnt = 1; sstop = (sizeof(umost)-i)/sizeof(slstype);
 	memset(umost,0,i);
 
@@ -8830,7 +8403,8 @@ freezesprcont:;
  */
 int meltsphere (vx5sprite *spr, lpoint3d *hit, int hitrad)
 {
-	int i, j, x, y, z, xs, ys, zs, xe, ye, ze, sq, z0, z1;
+	int x, y, z, xs, ys, zs, xe, ye, ze, sq, z0, z1;
+	size_t i, j;
 	int oxvoxs, oyvoxs, numvoxs, cx, cy, cz, cw;
 	float f, ff;
 	kv6data *kv;
@@ -8877,7 +8451,7 @@ int meltsphere (vx5sprite *spr, lpoint3d *hit, int hitrad)
 				z0 = MAX(hit->z-sq,zs); z1 = MIN(hit->z+sq+1,ze);
 				for(z=z0;z<z1;z++)
 				{
-					i = (int)getcube(x,y,z); //0:air, 1:unexposed solid, 2:vbuf col ptr
+					i = (size_t)getcube(x,y,z); //0:air, 1:unexposed solid, 2:vbuf col ptr
 					if (i)
 					{
 						cx += (x-hit->x); cy += (y-hit->y); cz += (z-hit->z); cw++;
@@ -8902,7 +8476,7 @@ int meltsphere (vx5sprite *spr, lpoint3d *hit, int hitrad)
 	x = xe-xs+1; y = ye-ys+1; z = ze-zs+1;
 
 	j = sizeof(kv6data) + numvoxs*sizeof(kv6voxtype) + x*4 + x*y*2;
-	i = (int)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
+	i = (size_t)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
 	spr->voxnum = kv = (kv6data *)i; spr->flags = 0;
 	kv->leng = j;
 	kv->xsiz = x;
@@ -8914,9 +8488,9 @@ int meltsphere (vx5sprite *spr, lpoint3d *hit, int hitrad)
 	kv->numvoxs = numvoxs;
 	kv->namoff = 0;
 	kv->lowermip = 0;
-	kv->vox = (kv6voxtype *)((int)spr->voxnum+sizeof(kv6data));
-	kv->xlen = (unsigned int *)(((int)kv->vox)+numvoxs*sizeof(kv6voxtype));
-	kv->ylen = (unsigned short *)(((int)kv->xlen) + kv->xsiz*4);
+	kv->vox = (kv6voxtype *)((size_t)spr->voxnum+sizeof(kv6data));
+	kv->xlen = (unsigned int *)(((size_t)kv->vox)+numvoxs*sizeof(kv6voxtype));
+	kv->ylen = (unsigned short *)(((size_t)kv->xlen) + kv->xsiz*4);
 
 	voxptr = kv->vox; numvoxs = 0;
 	xlenptr = kv->xlen; oxvoxs = 0;
@@ -8980,7 +8554,8 @@ int meltsphere (vx5sprite *spr, lpoint3d *hit, int hitrad)
 int meltspans (vx5sprite *spr, vspans *lst, int lstnum, lpoint3d *offs)
 {
 	float f;
-	int i, j, x, y, z, xs, ys, zs, xe, ye, ze, z0, z1;
+	int j, x, y, z, xs, ys, zs, xe, ye, ze, z0, z1;
+	size_t i;
 	int ox, oy, oxvoxs, oyvoxs, numvoxs, cx, cy, cz, cw;
 	kv6data *kv;
 	kv6voxtype *voxptr;
@@ -9008,7 +8583,7 @@ int meltspans (vx5sprite *spr, vspans *lst, int lstnum, lpoint3d *offs)
 		if (z1 > ze) ze = z1;
 		for(z=z0;z<z1;z++) //getcube too SLOW... FIX THIS!!!
 		{
-			i = (int)getcube(x,y,z); //0:air, 1:unexposed solid, 2:vbuf col ptr
+			i = (size_t)getcube(x,y,z); //0:air, 1:unexposed solid, 2:vbuf col ptr
 			if (i) { cx += x-offs->x; cy += y-offs->y; cz += z-offs->z; cw++; }
 			if (i&~1) numvoxs++;
 		}
@@ -9027,7 +8602,7 @@ int meltspans (vx5sprite *spr, vspans *lst, int lstnum, lpoint3d *offs)
 	x = xe-xs+1; y = ye-ys+1; z = ze-zs;
 
 	j = sizeof(kv6data) + numvoxs*sizeof(kv6voxtype) + y*4 + x*y*2;
-	i = (int)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
+	i = (size_t)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
 	spr->voxnum = kv = (kv6data *)i; spr->flags = 0;
 	kv->leng = j;
 	kv->xsiz = y;
@@ -9039,9 +8614,9 @@ int meltspans (vx5sprite *spr, vspans *lst, int lstnum, lpoint3d *offs)
 	kv->numvoxs = numvoxs;
 	kv->namoff = 0;
 	kv->lowermip = 0;
-	kv->vox = (kv6voxtype *)((int)spr->voxnum+sizeof(kv6data));
-	kv->xlen = (unsigned int *)(((int)kv->vox)+numvoxs*sizeof(kv6voxtype));
-	kv->ylen = (unsigned short *)(((int)kv->xlen) + kv->xsiz*4);
+	kv->vox = (kv6voxtype *)((size_t)spr->voxnum+sizeof(kv6data));
+	kv->xlen = (unsigned int *)(((size_t)kv->vox)+numvoxs*sizeof(kv6voxtype));
+	kv->ylen = (unsigned short *)(((size_t)kv->xlen) + kv->xsiz*4);
 
 	voxptr = kv->vox; numvoxs = 0;
 	xlenptr = kv->xlen; oxvoxs = 0;
@@ -9065,7 +8640,7 @@ int meltspans (vx5sprite *spr, vspans *lst, int lstnum, lpoint3d *offs)
 		for(z=z0;z<z1;z++) //getcube TOO SLOW... FIX THIS!!!
 		{
 			int *colptr=getcube(x,y,z); //0:air, 1:unexposed solid, 2:vbuf col ptr
-			if (!(((int)colptr)&~1)) continue;
+			if (!(((size_t)colptr)&~1)) continue;
 			voxptr[numvoxs].col = lightvox(*colptr);
 			voxptr[numvoxs].z = z-zs;
 
@@ -9304,14 +8879,14 @@ void checkfloatinbox (int x0, int y0, int z0, int x1, int y1, int z1)
 		}
 }
 
-void isnewfloatingadd (int f)
+void isnewfloatingadd (size_t f)
 {
 	int v = (((f>>(LOGHASHEAD+3))-(f>>3)) & ((1<<LOGHASHEAD)-1));
 	vlst[vlstcnt].b = hhead[v]; hhead[v] = vlstcnt;
 	vlst[vlstcnt].v = f; vlstcnt++;
 }
 
-int isnewfloatingot (int f)
+int isnewfloatingot (size_t f)
 {
 	int v = hhead[((f>>(LOGHASHEAD+3))-(f>>3)) & ((1<<LOGHASHEAD)-1)];
 	while (1)
@@ -9324,7 +8899,7 @@ int isnewfloatingot (int f)
 
 	//removes a & adds b while preserving index; used only by meltfall(...)
 	//Must do nothing if 'a' not in hash
-void isnewfloatingchg (int a, int b)
+void isnewfloatingchg (size_t a, size_t b)
 {
 	int ov, v, i, j;
 
@@ -9362,9 +8937,9 @@ int isnewfloating (flstboxtype *flb)
 		if (p.z < v[3]) break;
 	}
 
-	if (isnewfloatingot((int)ov) >= 0) return(0);
+	if (isnewfloatingot((size_t)ov) >= 0) return(0);
 	ovlstcnt = vlstcnt;
-	isnewfloatingadd((int)ov);
+	isnewfloatingadd((size_t)ov);
 	if (vlstcnt >= VLSTSIZ) return(0); //EVIL HACK TO PREVENT CRASH!
 
 		//Init: centroid, mass, bounding box
@@ -9409,12 +8984,12 @@ int isnewfloating (flstboxtype *flb)
 				}
 				ov = v; v += v[0]*4; //NOTE: this is a 'different' ov
 				if ((ov[1] > z1) || (z0 > v[3])) continue; //26-connectivity
-				j = isnewfloatingot((int)ov);
+				j = isnewfloatingot((size_t)ov);
 				if (j < 0)
 				{
-					isnewfloatingadd((int)ov);
+					isnewfloatingadd((size_t)ov);
 					if (vlstcnt >= VLSTSIZ) return(0); //EVIL HACK TO PREVENT CRASH!
-					fstk[fend].x = nx; fstk[fend].y = ny; fstk[fend].z = (int)ov;
+					fstk[fend].x = nx; fstk[fend].y = ny; fstk[fend].z = (size_t)ov;
 					fend++; if (fend >= FSTKSIZ) return(0); //EVIL HACK TO PREVENT CRASH!
 					continue;
 				}
@@ -9490,7 +9065,7 @@ void dofall (int i)
 		v[3]++;
 		if ((v[3] == v[1]) && (vx5.flstcnt[i].i1 >= 0))
 		{
-			j = isnewfloatingot((int)v);
+			j = isnewfloatingot((size_t)v);
 				//Make sure it's not part of the same floating object
 			if ((j < vx5.flstcnt[i].i0) || (j >= vx5.flstcnt[i].i1))
 				vx5.flstcnt[i].i1 = -1; //Mark flstcnt[i] for scum2 fixup
@@ -9510,7 +9085,8 @@ void dofall (int i)
 	//kv6, vox, xlen, ylen are all malloced in here!
 int meltfall (vx5sprite *spr, int fi, int delvxl)
 {
-	int i, j, k, x, y, z, xs, ys, zs, xe, ye, ze;
+	int j, k, x, y, z, xs, ys, zs, xe, ye, ze;
+	size_t i;
 	int oxvoxs, oyvoxs, numvoxs;
 	char *v, *ov, *nv;
 	kv6data *kv;
@@ -9539,7 +9115,7 @@ int meltfall (vx5sprite *spr, int fi, int delvxl)
 	x = xe-xs+1; y = ye-ys+1; z = ze-zs+1;
 
 	j = sizeof(kv6data) + numvoxs*sizeof(kv6voxtype) + x*4 + x*y*2;
-	i = (int)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
+	i = (size_t)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
 	spr->voxnum = kv = (kv6data *)i; spr->flags = 0;
 	kv->leng = j;
 	kv->xsiz = x;
@@ -9551,9 +9127,9 @@ int meltfall (vx5sprite *spr, int fi, int delvxl)
 	kv->numvoxs = numvoxs;
 	kv->namoff = 0;
 	kv->lowermip = 0;
-	kv->vox = (kv6voxtype *)((int)spr->voxnum+sizeof(kv6data));
-	kv->xlen = (unsigned int *)(((int)kv->vox)+numvoxs*sizeof(kv6voxtype));
-	kv->ylen = (unsigned short *)(((int)kv->xlen) + kv->xsiz*4);
+	kv->vox = (kv6voxtype *)((size_t)spr->voxnum+sizeof(kv6data));
+	kv->xlen = (unsigned int *)(((size_t)kv->vox)+numvoxs*sizeof(kv6voxtype));
+	kv->ylen = (unsigned short *)(((size_t)kv->xlen) + kv->xsiz*4);
 
 	voxptr = kv->vox; numvoxs = 0;
 	xlenptr = kv->xlen; oxvoxs = 0;
@@ -9567,7 +9143,7 @@ int meltfall (vx5sprite *spr, int fi, int delvxl)
 			{
 				nv = v+v[0]*4;
 
-				i = isnewfloatingot((int)v);
+				i = isnewfloatingot((size_t)v);
 				if (((unsigned int)i >= vx5.flstcnt[fi].i1) || (i < vx5.flstcnt[fi].i0))
 					continue;
 
@@ -9654,27 +9230,27 @@ int meltfall (vx5sprite *spr, int fi, int delvxl)
 				{
 					nv = v+v[0]*4;
 
-					i = isnewfloatingot((int)v);
+					i = isnewfloatingot((size_t)v);
 					if (((unsigned int)i >= vx5.flstcnt[fi].i1) || (i < vx5.flstcnt[fi].i0))
 						continue;
 
 						//Quick&dirty dealloc from VXL (bad for holes!)
 
 						//invalidate current vptr safely
-					isnewfloatingchg((int)v,0);
+					isnewfloatingchg((size_t)v,0);
 
 					k = nv-v; //perform slng(nv) and adjust vlst at same time
 					for(ov=nv;ov[0];ov+=ov[0]*4)
-						isnewfloatingchg((int)ov,((int)ov)-k);
+						isnewfloatingchg((size_t)ov,((size_t)ov)-k);
 
-					j = (int)ov-(int)nv+(ov[2]-ov[1]+1)*4+4;
+					j = (ptrdiff_t)ov-(ptrdiff_t)nv+(ov[2]-ov[1]+1)*4+4;
 
 						//shift end of RLE column up
 					v[0] = nv[0]; v[1] = nv[1]; v[2] = nv[2];
 					for(i=4;i<j;i+=4) *(int *)&v[i] = *(int *)&nv[i];
 
 						//remove end of RLE column from vbit
-					i = ((((int)(&v[i]))-(int)vbuf)>>2); j = (k>>2)+i;
+					i = ((((ptrdiff_t)(&v[i]))-(ptrdiff_t)vbuf)>>2); j = (k>>2)+i;
 #if 0
 					while (i < j) { vbit[i>>5] &= ~(1<<i); i++; }
 #else
@@ -9699,7 +9275,8 @@ int meltfall (vx5sprite *spr, int fi, int delvxl)
 
 int Vox_DeleteFloatingBlock (int fi)
 {
-	int i, j, k, x, y, z, xs, ys, zs, xe, ye, ze;
+	int j, k, x, y, z, xs, ys, zs, xe, ye, ze;
+	size_t i;
 	int oxvoxs, oyvoxs, numvoxs;
 	char *v, *ov, *nv;
 	kv6voxtype *voxptr;
@@ -9722,34 +9299,34 @@ int Vox_DeleteFloatingBlock (int fi)
 	x = xe-xs+1; y = ye-ys+1; z = ze-zs+1;
 
 	j = sizeof(kv6data) + numvoxs*sizeof(kv6voxtype) + x*4 + x*y*2;
-	i = (int)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
+	i = (size_t)malloc(j); if (!i) return(0); if (i&3) { free((void *)i); return(0); }
 		for(x=xs;x<=xe;x++)
 			for(y=ys;y<=ye;y++)
 				for(v=sptr[y*VSID+x];v[0];v=nv)
 				{
 					nv = v+v[0]*4;
 
-					i = isnewfloatingot((int)v);
+					i = isnewfloatingot((size_t)v);
 					if (((unsigned int)i >= vx5.flstcnt[fi].i1) || (i < vx5.flstcnt[fi].i0))
 						continue;
 
 						//Quick&dirty dealloc from VXL (bad for holes!)
 
 						//invalidate current vptr safely
-					isnewfloatingchg((int)v,0);
+					isnewfloatingchg((size_t)v,0);
 
 					k = nv-v; //perform slng(nv) and adjust vlst at same time
 					for(ov=nv;ov[0];ov+=ov[0]*4)
-						isnewfloatingchg((int)ov,((int)ov)-k);
+						isnewfloatingchg((size_t)ov,((size_t)ov)-k);
 
-					j = (int)ov-(int)nv+(ov[2]-ov[1]+1)*4+4;
+					j = (ptrdiff_t)ov-(ptrdiff_t)nv+(ov[2]-ov[1]+1)*4+4;
 
 						//shift end of RLE column up
 					v[0] = nv[0]; v[1] = nv[1]; v[2] = nv[2];
 					for(i=4;i<j;i+=4) *(int *)&v[i] = *(int *)&nv[i];
 
 						//remove end of RLE column from vbit
-					i = ((((int)(&v[i]))-(int)vbuf)>>2); j = (k>>2)+i;
+					i = ((((ptrdiff_t)(&v[i]))-(ptrdiff_t)vbuf)>>2); j = (k>>2)+i;
 #if 0
 					while (i < j) { vbit[i>>5] &= ~(1<<i); i++; }
 #else
@@ -9818,7 +9395,7 @@ VOXLAP_DLL_FUNC void voxsetframebuffer (int *p, int b, int x, int y)
 		//Set global variables used by kv6draw's PIII asm (drawboundcube)
 	qsum1[3] = qsum1[1] = 0x7fff-y; qsum1[2] = qsum1[0] = 0x7fff-x;
 	kv6bytesperline = qbplbpp[1] = b; qbplbpp[0] = 4;
-	kv6frameplace = (int)(p - (qsum1[0]*qbplbpp[0] + qsum1[1]*qbplbpp[1]));
+	kv6frameplace = (size_t)(p - (qsum1[0]*qbplbpp[0] + qsum1[1]*qbplbpp[1]));
 	if ((b != ylookup[1]) || (x != xres_voxlap) || (y != yres_voxlap))
 	{
 		bytesperline = b; xres_voxlap = x; yres_voxlap = y; xres4_voxlap = (xres_voxlap<<2);
@@ -10102,11 +9679,19 @@ VOXLAP_DLL_FUNC int initvoxlap ()
 	volatile unsigned int i;
 	float f, ff;
 	
+	//This probably is better done via macros, but I wanted to be 100% sure
 	if(sizeof(size_t)!=sizeof(char*)){
 		evilquit("size_t doesn't have the size of a pointer on the target system!");
 		return -1;
 	}
-
+	if(sizeof(ptrdiff_t)!=sizeof(size_t)){
+		evilquit("ptrdiff_t is not big enough (sizeof(ptrdiff_t)!=sizeof(size_t))!");
+		return -1;
+	}
+	if(sizeof(unsigned int)!=4){
+		evilquit("unsigned int isn't 4 bytes big!");
+		return -1;
+	}
 		//unlocking code memory for self-modifying code
 	#if (defined(USEV5ASM) && (USEV5ASM != 0)) //if true
 	code_rwx_unlock((void *)dep_protect_start, (void *)dep_protect_end);
@@ -10126,7 +9711,7 @@ VOXLAP_DLL_FUNC int initvoxlap ()
 	  //WARNING: xres_voxlap & yres_voxlap are local to VOXLAP5.C so don't rely on them here!
 	if (!(radarmem = (int *)malloc(MAX((((MAXXDIM*MAXYDIM*27)>>1)+7)&~7,(VSID+4)*3*SCPITCH*4+8))))
 		return(-3);
-	radar = (int *)((((int)radarmem)+7)&~7);
+	radar = (int *)((((size_t)radarmem)+7)&~7);
 
 	for(i=0;i<32;i++) { xbsflor[i] = (-1<<i); xbsceil[i] = ~xbsflor[i]; }
 
@@ -10370,6 +9955,7 @@ __FORCE_INLINE__ float _Vox_KV6Project2D(float x, float y, float z, int *screenx
 }
 
 __FORCE_INLINE__ void  _Calculate_Fog(__REGISTER unsigned char *color, float *dist){
+	const float invpwr_maxscandist=1.0/(vx5.maxscandist*vx5.maxscandist/255.0);
 	__REGISTER unsigned int fog_alpha=255-*dist**dist*invpwr_maxscandist;
 	__REGISTER unsigned char *fogptr=(unsigned char*)&vx5.fogcol;
 	color[0]=((unsigned int)fogptr[0])+(((((unsigned int)color[0])-fogptr[0])*fog_alpha)>>8);
@@ -10380,6 +9966,7 @@ __FORCE_INLINE__ void  _Calculate_Fog(__REGISTER unsigned char *color, float *di
 }
 
 VOXLAP_DLL_FUNC void Vox_Calculate_2DFog(unsigned char *color, float xdist, float ydist){
+	const float invpwr_maxscandist=1.0/(vx5.maxscandist*vx5.maxscandist/255.0);
 	__REGISTER float xydist=xdist*xdist+ydist*ydist;
 	__REGISTER unsigned int fog_alpha=xydist*invpwr_maxscandist;
 	fog_alpha-=(fog_alpha-255)*(fog_alpha>255);

@@ -11,6 +11,7 @@ Edited by lecom
 #ifndef VOXLAP_DLL_FUNC
 #define VOXLAP_DLL_FUNC
 #endif
+#include <stddef.h>
 
 /* For SSE2 byte-vectors*/
 #ifdef _MSC_VER

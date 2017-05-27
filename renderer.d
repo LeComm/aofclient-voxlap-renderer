@@ -552,16 +552,25 @@ nothrow T Dist3D_To_2DCoord(T)(Vector_t!(3, T) vdist, ref T scrx, ref T scry){
 void Renderer_Draw3DParticle(alias hole_side=false)(immutable in float x, immutable in float y, immutable in float z,
 immutable in RendererParticleSize_t w, immutable in RendererParticleSize_t h, immutable in RendererParticleSize_t l, uint col){
 	float dist;
-	signed_register_t scrx, scry, hw=w>>1, hh=h>>1;
+	signed_register_t scrx, scry;
 	Project2D(x, y, z, scrx, scry, dist);
-	if(scrx<hw || scry<hh || scrx>=vxrend_framebuf_w-hw || scry>=vxrend_framebuf_h-hh || dist<1.0 || dist>=Fog_AlphaValues.length)
+	if(scrx<0 || scry<0 || scrx>=vxrend_framebuf_w || scry>=vxrend_framebuf_h || dist<1.0 || dist>=Fog_AlphaValues.length)
 		return;
+	int rend_w=w/(cast(int)dist)+1, rend_h=h/(cast(int)dist)+1, hrend_w=rend_w>>1, hrend_h=rend_h>>1;
+	if(scrx+rend_w>=vxrend_framebuf_w || scry+rend_h>=vxrend_framebuf_h){
+		immutable int scrx1=max(scrx-hrend_w, 0), scrx2=min(scrx+hrend_w, vxrend_framebuf_w-1);
+		immutable int scry1=max(scry-hrend_h, 0), scry2=min(scry+hrend_h, vxrend_framebuf_h-1);
+		if(scrx1>=scrx2 || scry1>=scry2)
+			return;
+		rend_w=scrx2-scrx1; rend_h=scry2-scry1;
+		scrx=scrx1; scry=scry1;
+	}
 	immutable fog_color_mod_alpha=Fog_AlphaValues[cast(size_t)dist];
 	immutable inv_fog_color_mod_alpha=255-fog_color_mod_alpha;
 	immutable fog_ccomp1=((col&0x00ff00ff)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent1*fog_color_mod_alpha)>>>8;
 	immutable fog_ccomp2=((col&0x0000ff00)*inv_fog_color_mod_alpha+Fog_AlphaColorComponent2*fog_color_mod_alpha)>>>8;
 	col=(fog_ccomp1&0x00ff00ff) | (fog_ccomp2&0x0000ff00);
-	Renderer_FillRect3D(scrx, scry, w/to!int(dist)+1, h/to!int(dist)+1, col|0xff000000, dist);
+	Renderer_FillRect3D(scrx, scry, rend_w, rend_h, col|0xff000000, dist);
 }
 
 alias Renderer_DrawWireframe=Renderer_DrawSprite;

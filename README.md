@@ -28,3 +28,6 @@ DMD/GDC/LDC with object files (Standard):
 	Put Makefile into vxw-client source directory. Type "make -f make_voxlap_renderer". Go to vxw-client source directory, type "make". (For GDC or LDC, type "make gdc"/"make ldc").
 LDC with LLVM LTO (For FPS increase by 1/5):
 	Put Makefile into vxw-client source directory. Type "make -f make_voxlap_renderer voxlap5.ll". Go to vxw-client source directory, type "make ll".
+
+Licensing:
+This software is released under the same license as its preceding Voxlap port (https://github.com/Ericson2314/Voxlap) and as the original Voxlap Engine non-commercial license.
