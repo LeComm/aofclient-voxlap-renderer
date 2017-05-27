@@ -3728,7 +3728,7 @@ int loadvxl (const char *lodfilnam)
 		v += ((((int)v[2])-((int)v[1])+2)<<2);
 	}
 	unsigned int size=VSID*VSID;
-	memset(&sptr[size],0,sizeof(sptr)-size*4);
+	memset(&sptr[size],0,sizeof(sptr)-size*sizeof(sptr[0]));
 	vbiti = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);
@@ -3760,7 +3760,7 @@ int Vox_vloadvxl (const char *data, unsigned int size)
 		while (*v) {v += (*v)<<2;}
 		v += ((((int)v[2])-((int)v[1])+2)<<2);
 	}
-	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*4);
+	memset(&sptr[VSID*VSID],0,sizeof(sptr)-VSID*VSID*sizeof(sptr[0]));
 	vbiti = (((ptrdiff_t)v-(ptrdiff_t)vbuf)>>2); //# vbuf longs/vbit bits allocated
 	clearbuf((void *)vbit,vbiti>>5,-1);
 	clearbuf((void *)&vbit[vbiti>>5],(VOXSIZ>>7)-(vbiti>>5),0);

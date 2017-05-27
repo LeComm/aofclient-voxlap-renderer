@@ -4,7 +4,7 @@ RENDERER_LIB_LL=./vxwclient-voxlap-renderer/voxlap5.ll
 RENDERER_LIB_SRC=./vxwclient-voxlap-renderer/voxlap5.c
 DFLAGS=-g
 LDFLAGS=-lslang
-TARGET_ARCH=$(shell getconf LONG_BIT)
+TARGET_ARCH=64
 
 dmd: $(RENDERER_LIB_OBJ) $(RENDERER_LIB_SRC)
 	dmd -m$(TARGET_ARCH) $(DFLAGS)  $(RENDERER_LIB_OBJ) -unittest $(SRCFILES) -L-L/usr/local/lib -L-lslang -ofmain

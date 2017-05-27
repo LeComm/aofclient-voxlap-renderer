@@ -556,10 +556,10 @@ immutable in RendererParticleSize_t w, immutable in RendererParticleSize_t h, im
 	Project2D(x, y, z, scrx, scry, dist);
 	if(scrx<0 || scry<0 || scrx>=vxrend_framebuf_w || scry>=vxrend_framebuf_h || dist<1.0 || dist>=Fog_AlphaValues.length)
 		return;
-	int rend_w=w/(cast(int)dist)+1, rend_h=h/(cast(int)dist)+1, hrend_w=rend_w>>1, hrend_h=rend_h>>1;
+	signed_register_t rend_w=w/(cast(int)dist)+1, rend_h=h/(cast(int)dist)+1, hrend_w=rend_w>>1, hrend_h=rend_h>>1;
 	if(scrx+rend_w>=vxrend_framebuf_w || scry+rend_h>=vxrend_framebuf_h){
-		immutable int scrx1=max(scrx-hrend_w, 0), scrx2=min(scrx+hrend_w, vxrend_framebuf_w-1);
-		immutable int scry1=max(scry-hrend_h, 0), scry2=min(scry+hrend_h, vxrend_framebuf_h-1);
+		immutable scrx1=max(scrx-hrend_w, 0), scrx2=min(scrx+hrend_w, vxrend_framebuf_w-1);
+		immutable scry1=max(scry-hrend_h, 0), scry2=min(scry+hrend_h, vxrend_framebuf_h-1);
 		if(scrx1>=scrx2 || scry1>=scry2)
 			return;
 		rend_w=scrx2-scrx1; rend_h=scry2-scry1;
