@@ -1255,10 +1255,13 @@ void gline(int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 	signed int ray_dir[2]={fabs(f1)*PREC, fabs(f2)*PREC};
 	//ftol(fabs(f1)*PREC,&gdz[0]);
 	//ftol(fabs(f2)*PREC,&gdz[1]);
-	int gxmax, gixy[2];
+	int gxmax;
+	ptrdiff_t gixy[2];
 
-	gixy[0] = (((*(signed int *)&vx1)>>31)<<3)+4; //=sgn(vx1)*4
-	gixy[1] = gixyi[(*(unsigned int *)&vy1)>>31]; //=sgn(vy1)*4*VSID
+	//gixy[0] = (((*(signed int *)&vx1)>>31)<<3)+4; //=sgn(vx1)*4
+	//gixy[1] = gixyi[(*(unsigned int *)&vy1)>>31]; //=sgn(vy1)*4*VSID
+	gixy[0]=(vx1>=0.0 ? 1 : -1)*sizeof(uintptr_t);
+	gixy[1]=(vy1>=0.0 ? 1 : -1)*VSID*sizeof(uintptr_t);
 	signed int ray_pos[2];
 	if (ray_dir[0] <= 0) { ray_pos[0]=gposxfrac[(*(unsigned int *)&vx1)>>31]*fabs(f1)*PREC;
 		if (ray_pos[0] <= 0) ray_pos[0] = 0x7fffffff; ray_dir[0] = 0x7fffffff-ray_pos[0]; } //Hack for divide overflow
@@ -1529,8 +1532,7 @@ afterdelete:;
 		if (c < &cfasm[128])
 		{
 			/*ixy is the position(index) on sptr, gixy is some kind of direction vector for pointer usage*/
-			//ixy += gixy[j]; (crashes for some reason)
-			ixy=(uintptr_t)(char**)(((char*)ixy)+gixy[j]);
+			ixy += gixy[j];
 			ray_pos[j] += ray_dir[j];
 			/*j indicates whether ray.x+=x or ray.y+=y should be done (at some point, you'll always end up doing something like this in DDA) */
 			/*gpz is the ray position, fixed point (x>>16)*/
