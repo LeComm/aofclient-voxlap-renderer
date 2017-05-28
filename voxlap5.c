@@ -1382,7 +1382,7 @@ void gline(int leng, float x0, float y0, float x1, float y1, castdat *gscanptr)
 	ce = c; v = gstartv;
 	j = (((unsigned int)(ray_pos[1]-ray_pos[0]))>>31);
 	gx = ray_pos[j];
-	char **ixy = gpixy;
+	uintptr_t ixy = (uintptr_t)gpixy;
 	unsigned int d_int, prev_j;
 	unsigned int maxdmulruns, runs;
 	unsigned int sqr_dist=1;
@@ -1456,7 +1456,7 @@ drawfwall:;
 		//fill_dat.dist=sqr_dist+(c->z1-gipos.z)*(c->z1-gipos.z);
 		fill_dat.dist=(((sqr_dist+(unsigned int)((c->z1-gipos.z)*(c->z1-gipos.z)))<<16)/pow_maxscandist)<<14;
 
-		if (v == *ixy) goto drawflor;
+		if (v == (char *)*(uintptr_t *)ixy) goto drawflor;
 
 //drawcwall:;
 		const char v3=v[3];
@@ -1482,7 +1482,7 @@ drawfwall:;
 			} while (v3 != c->z0);
 			}
 		}
-		if (v == *ixy) goto drawflor;
+		if (v == (char *)*(uintptr_t *)ixy) goto drawflor;
 
 drawceil:;
 		fill_dat.col=(*(int *)&v[-4]);
@@ -1530,7 +1530,7 @@ afterdelete:;
 		{
 			/*ixy is the position(index) on sptr, gixy is some kind of direction vector for pointer usage*/
 			//ixy += gixy[j]; (crashes for some reason)
-			ixy=(char**)(((char*)ixy)+gixy[j]);
+			ixy=(uintptr_t)(char**)(((char*)ixy)+gixy[j]);
 			ray_pos[j] += ray_dir[j];
 			/*j indicates whether ray.x+=x or ray.y+=y should be done (at some point, you'll always end up doing something like this in DDA) */
 			/*gpz is the ray position, fixed point (x>>16)*/
@@ -1541,7 +1541,8 @@ afterdelete:;
 			/*gx is something like distance, gxmax is like max distance*/
 			/*all are multiplied by PREC*/
 			if (gx > gxmax) break;
-			v = *ixy; c = ce;
+			//Sorry, I have changed this to use proper pointers, but then it just broke on 64 bit
+			v = (char *)*(uintptr_t *)ixy; c = ce;
 #if (USEZBUFFER!=0)
 			float dist_sqrt=PREC_DIV(gx);
 			sqr_dist=dist_sqrt*dist_sqrt;
@@ -9725,7 +9726,10 @@ VOXLAP_DLL_FUNC int initvoxlap ()
 		for(zz=3;zz<=i;zz=factr[zz][1])
 			if (!(z%zz)) { factr[z][0] = zz; factr[z][1] = z/zz; break; }
 		if (!factr[z][0]) k = z;
-		factr[z+1][0] = ((z+1)>>1); factr[z+1][1] = 2;
+		if(z<SETSPHMAXRAD){
+			factr[z+1][0] = ((z+1)>>1);
+			factr[z+1][1] = 2;
+		}
 	}
 	for(z=1;z<SETSPHMAXRAD;z++) logint[z] = log((double)z);
 
