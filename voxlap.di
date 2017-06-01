@@ -27,6 +27,7 @@ void setflash(float, float, float, int, int, int);
 
 int isvoxelsolid(int, int, int);
 int getfloorz(int, int, int);
+int getnextfloorz(int, int, int);
 int* getcube(int, int, int);
 void setcube(int, int, int, int);
 void Vox_Calculate_2DFog(ubyte*, float, float);

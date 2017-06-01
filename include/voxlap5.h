@@ -357,6 +357,7 @@ extern VOXLAP_DLL_FUNC int isvoxelsolid (int, int, int);
 extern VOXLAP_DLL_FUNC int anyvoxelsolid (int, int, int, int);
 extern VOXLAP_DLL_FUNC int anyvoxelempty (int, int, int, int);
 extern VOXLAP_DLL_FUNC int getfloorz (int, int, int);
+extern VOXLAP_DLL_FUNC int getnextfloorz(int, int, int);
 extern VOXLAP_DLL_FUNC int* getcube (int, int, int);
 
 	/*VXL writing functions (optimized & bug-free):*/

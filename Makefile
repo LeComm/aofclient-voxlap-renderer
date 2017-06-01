@@ -7,7 +7,7 @@ LDFLAGS=-lslang
 TARGET_ARCH=$(shell getconf LONG_BIT)
 
 dmd: $(RENDERER_LIB_OBJ) $(RENDERER_LIB_SRC)
-	dmd -m$(TARGET_ARCH) $(DFLAGS)  $(RENDERER_LIB_OBJ) -unittest $(SRCFILES) -L-L/usr/local/lib -L-L. -L-lslang -ofmain
+	dmd -m$(TARGET_ARCH) $(DFLAGS)  $(RENDERER_LIB_OBJ) -unittest $(SRCFILES) -L-L/usr/local/lib -L-L. -L-lslang -ofmain -L-no-pie -v
 
 ldc: $(RENDERER_LIB_OBJ) $(RENDERER_LIB_SRC)
 	ldc2 -O5 -mattr=mmx -mattr=sse -mattr=sse2 -mattr=sse3 -m$(TARGET_ARCH) $(DFLAGS) -singleobj -release -inline $(SRCFILES) $(RENDERER_LIB_OBJ) -gc -L-L/usr/local/lib -L-lslang -ofmain

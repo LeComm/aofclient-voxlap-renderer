@@ -1005,6 +1005,21 @@ int getfloorz (int x, int y, int z)
 	return(z);
 }
 
+//Like getfloorz, but instead of looking for a solid voxel in an empty space, it looks for the first empty voxel in a solid space
+int getnextfloorz(int x, int y, int z){
+	__REGISTER char *v;
+
+	if ((unsigned int)(x|y) >= VSID) return(z);
+	v = sptr[y*VSID+x];
+	while (1)
+	{
+		if(z<=v[1])return v[1];
+		v += (v[0])<<2;
+		if(!v[0])return z;
+	}
+	return(z);
+}
+
 	//Returns:
 	//   0: air
 	//   1: unexposed solid
@@ -2297,7 +2312,7 @@ void fast_hrendz(int startx, int ypos, int endx, __REGISTER int plc, __REGISTER 
 void vrendz (int sx, int sy, int p1, int iplc, int iinc, castdat *angstart[MAXXDIM*4], unsigned int *uurend)
 {
 	int i, *p0;
-	__REGISTER castdat *ang_ptr, *ang_arr;
+	__REGISTER castdat *ang_ptr;
 	p0 = (int*)(ylookup[sy]+(sx<<2)+frameplace);
 	int *endptr = (int*)(ylookup[sy]+(p1<<2)+frameplace);
 	i = zbufoff;	
@@ -2306,8 +2321,7 @@ void vrendz (int sx, int sy, int p1, int iplc, int iinc, castdat *angstart[MAXXD
 	};
 	while (p0 < endptr && uurend[sx]<Upper_Limit)
 	{
-		ang_arr=angstart[uurend[sx]>>16];
-		ang_ptr=&ang_arr[iplc];
+		ang_ptr=&angstart[uurend[sx]>>16][iplc];
 		*p0 = ang_ptr->col;
 		*(unsigned int *)(((unsigned char*)p0)+i) = (unsigned int)ang_ptr->dist;
 		uurend[sx] += uurend[sx+MAXXDIM]; p0 ++; iplc += iinc; ++sx;

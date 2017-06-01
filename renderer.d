@@ -64,13 +64,6 @@ void Renderer_Init(){
 	initvoxlap();
 	VoxlapInterface=Vox_GetVX5();
 	Renderer_SetFog(0x0000ffff, 128);
-	{
-		SDL_Surface *smoke_circle_srfc=__SmokeCircle_Generate(smoke_circle_tex_w, smoke_circle_tex_h);
-		smoke_circle_tex=Renderer_NewTexture(smoke_circle_tex_w, smoke_circle_tex_h);
-		Renderer_UploadToTexture(smoke_circle_srfc, smoke_circle_tex);
-		SDL_SetTextureBlendMode(smoke_circle_tex, SDL_BLENDMODE_BLEND);
-		SDL_FreeSurface(smoke_circle_srfc);
-	}
 }
 
 void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
@@ -109,6 +102,13 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	}
 	//SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_BLEND);
 	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, vxrend_framebuf_w, vxrend_framebuf_h);
+	{
+		SDL_Surface *smoke_circle_srfc=__SmokeCircle_Generate(smoke_circle_tex_w, smoke_circle_tex_h);
+		smoke_circle_tex=Renderer_NewTexture(smoke_circle_tex_w, smoke_circle_tex_h);
+		Renderer_UploadToTexture(smoke_circle_srfc, smoke_circle_tex);
+		SDL_SetTextureBlendMode(smoke_circle_tex, SDL_BLENDMODE_BLEND);
+		SDL_FreeSurface(smoke_circle_srfc);
+	}
 }
 
 real XFOV_Ratio=1.0, YFOV_Ratio=1.0;
@@ -154,12 +154,19 @@ void Renderer_SetBrightness(float brightness){
 }
 
 RendererTexture_t Renderer_NewTexture(uint xsize, uint ysize, bool streaming_texture=false){
-	if(!streaming_texture)
-		return SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, xsize, ysize);
-	SDL_Texture *tex=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, xsize, ysize);
-	if(!tex)
-		return SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, xsize, ysize);
-	return tex;
+	SDL_Texture *ret;
+	if(!streaming_texture){
+		ret=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, xsize, ysize);
+	}
+	else{
+		ret=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, xsize, ysize);
+		if(!ret)
+			ret=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, xsize, ysize);
+	}
+	if(!ret){
+		writeflnerr("Couldn't create SDL texture: %s", fromStringz(SDL_GetError()));
+	}
+	return ret;
 }
 
 RendererTexture_t Renderer_TextureFromSurface(SDL_Surface *srfc){
@@ -182,25 +189,30 @@ void Renderer_LoadMap(ubyte[] map){
 	VoxlapInterface.lightmode=0;
 }
 
+uVector3_t[2][] Lighting_BBoxes;
+
 void _Register_Lighting_BBox(int xpos, int ypos, int zpos){
 	updatebbox(xpos-1, zpos-1, ypos-1, xpos+1, zpos+1, ypos+1, 0);
+	//Lighting_BBoxes~=[uVector3_t(xpos-1, ypos-1, zpos-1), uVector3_t(xpos+1, ypos+1, zpos+1)];
 }
 
-extern(C) void *RenderThread_Func(void *arg){
-	RenderThread_t *thread=cast(RenderThread_t*)arg;
-	thread.Render(thread.fb_w, thread.fb_h);
-	pthread_exit(null);
-	return null;
-}
-
-
+immutable POSIX_Threads_Available=true;
+static if(POSIX_Threads_Available){
 version(POSIX){
 	import core.sys.posix.pthread;
 }
 else{
 	import windows_pthread;
 }
-extern(C) struct RenderThread_t{
+extern(C){
+void *RenderThread_Func(void *arg){
+	RenderThread_t *thread=cast(RenderThread_t*)arg;
+	thread.Render(thread.fb_w, thread.fb_h);
+	pthread_exit(null);
+	return null;
+}
+
+struct RenderThread_t{
 	double x1, x2, y1, y2;
 	uint fb_w, fb_h;
 	void *opticast_buf;
@@ -228,6 +240,33 @@ extern(C) struct RenderThread_t{
 			free(opticast_buf);
 	}
 }
+}
+}
+else{
+struct RenderThread_t{
+	double x1, x2, y1, y2;
+	uint fb_w, fb_h;
+	void *opticast_buf;
+	this(double ix1, double ix2, double iy1, double iy2){
+		x1=ix1; x2=ix2; y1=iy1; y2=iy2; opticast_buf=null;
+	}
+	void Run(uint ifb_w, uint ifb_h){
+		fb_w=ifb_w; fb_h=ifb_h;
+		Render(ifb_w, ifb_h);
+	}
+	void Render(uint ifb_w, uint ifb_h){
+		fb_w=ifb_w; fb_h=ifb_h;
+		opticast(to!uint(x1*fb_w), to!uint(x2*fb_w), to!uint(y1*fb_h), to!uint(y2*fb_h), &opticast_buf);
+	}
+	void Wait(){
+	}
+	void Uninit(){
+		import std.c.stdlib;
+		if(opticast_buf!=null)
+			free(opticast_buf);
+	}
+}
+}
 
 RenderThread_t[] RenderThreads;
 
@@ -240,6 +279,7 @@ void Renderer_DrawVoxels(){
 		uint newpos=global_lighting_update_pos+global_lighting_update_size;
 		if(newpos>MapZSize)
 			newpos=MapZSize;
+		//Lighting_BBoxes~=[uVector3_t(0, 0, global_lighting_update_pos), uVector3_t(MapXSize, MapYSize, newpos)];
 		updatebbox(0, global_lighting_update_pos, 0, MapXSize, newpos, MapYSize, 0);
 		if(newpos<MapZSize)
 			global_lighting_update_pos=newpos;
@@ -249,6 +289,22 @@ void Renderer_DrawVoxels(){
 		global_lighting_update_timer=0.0f;
 	}
 	if(lighting_update_flag && (Config_Read!bool("explosion_flashes") || Config_Read!bool("gun_flashes"))){
+		/*foreach(bbox; Lighting_BBoxes){
+			foreach(z; bbox[0].z..bbox[1].z+1){
+				foreach(x; bbox[0].x..bbox[1].x+1){
+					register_t y=0;
+					while(1){
+						register_t prev_y=y;
+						y=Voxel_GetNextFloorY(x, y, z);
+						if(y==prev_y)
+							break;
+						Voxel_SetShade(x, y, z, uniform!ubyte());
+						y++;
+					}
+				}
+			}
+		}*/
+		Lighting_BBoxes.length=0;
 		VoxlapInterface.lightmode=1;
 		updatevxl();
 		VoxlapInterface.lightmode=0;
@@ -282,7 +338,7 @@ void Renderer_DrawVoxels(){
 				RenderThreads[i]=RenderThread_t((cast(double)i)/RenderThreads.length, (cast(double)i+1)/RenderThreads.length, 0.0, 1.0);
 			}
 		}
-		static if(1){
+		static if(POSIX_Threads_Available){
 			foreach(ref thread; RenderThreads[0..$-1]){
 				thread.Run(vxrend_framebuf_w, vxrend_framebuf_h);
 			}
@@ -417,8 +473,13 @@ bool Voxel_IsSolid(Tx, Ty, Tz)(Tx x, Ty y, Tz z){
 	return cast(bool)isvoxelsolid(cast(uint)x, cast(uint)z, cast(uint)y);
 }
 
+//The engine is heavily relying on the performance of this function
 uint Voxel_GetHighestY(Tx, Ty, Tz)(Tx xpos, Ty ypos, Tz zpos){
 	return getfloorz(cast(uint)xpos, cast(uint)zpos, cast(uint)ypos);
+}
+
+uint Voxel_GetNextFloorY(Tx, Ty, Tz)(Tx xpos, Ty ypos, Tz zpos){
+	return getnextfloorz(cast(uint)xpos, cast(uint)zpos, cast(uint)ypos);
 }
 
 void Voxel_SetColor(Tx, Ty, Tz)(Tx xpos, Ty ypos, Tz zpos, uint col){
@@ -629,7 +690,7 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 	float modeldist;
 	{
 		try{
-			if(!Sprite_Visible(spr))
+			if(!Sprite_Visible(spr) || !spr.model)
 				return;
 		}catch(Exception){}
 		//Change this and make it consider ydiff too when not using Voxlap
@@ -642,7 +703,8 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 	immutable uint blockadvance=cast(uint)(modeldist*modeldist/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist)*VoxlapInterface.anginc*2.0f)+1;
 	immutable int screen_w=vxrend_framebuf_w, screen_h=vxrend_framebuf_h;
 	immutable lod_vx_size=pow(blockadvance, .75);
-	immutable MVRectSize=Vector_t!(2, real)(screen_w*XFOV_Ratio, screen_h*YFOV_Ratio)/2.0*1.45*lod_vx_size*spr.density.length;
+	//*1.45/2.0 = rifle AIDS reduced, stripey in fullscreen
+	immutable MVRectSize=Vector_t!(2, real)(screen_w*XFOV_Ratio, screen_h*YFOV_Ratio)*lod_vx_size*spr.density.length;
 	immutable renderrot=Vector_t!(3, real)(spr.rot.x, -(spr.rot.y+90.0), -spr.rot.z);
 	immutable uint fog_color_component1=Fog_AlphaColorComponent1, fog_color_component2=Fog_AlphaColorComponent2;
 	immutable real inv_maxscandist=255.0/(VoxlapInterface.maxscandist*VoxlapInterface.maxscandist);
@@ -688,10 +750,12 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 				continue;
 			immutable mvox=&spr.model.voxels[spr.model.offsets[blkx+blkz*spr.model.xsize]];
 			immutable real row_start_mvy=mvox[0].ypos, row_end_mvy=mvox[rowlen-1].ypos;
+			immutable row_start_pos=vxzpos+ydiff*row_start_mvy;
 			real startscreenx, startscreeny;
-			immutable startrenddist=Dist3D_To_2DCoord(vxzpos+ydiff*row_start_mvy, startscreenx, startscreeny);
+			immutable startrenddist=Dist3D_To_2DCoord(row_start_pos, startscreenx, startscreeny);
 			real endscreenx, endscreeny;
-			immutable endrenddist=Dist3D_To_2DCoord(vxzpos+ydiff*row_end_mvy, endscreenx, endscreeny);
+			immutable row_end_pos=vxzpos+ydiff*row_end_mvy;
+			immutable endrenddist=Dist3D_To_2DCoord(row_end_pos, endscreenx, endscreeny);
 			if((startscreenx<0 || startscreenx>=screen_w) && (startscreeny<0 || startscreeny>=screen_h)){
 				if((endscreenx<0 || endscreenx>=screen_w) && (endscreeny<0 || endscreeny>=screen_h)){
 					continue;
@@ -700,8 +764,8 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 			if(endrenddist<.01f || startrenddist<.01f || (startrenddist!=startrenddist) || (endrenddist!=endrenddist))
 				continue;
 			immutable screencoord_diff=Vector_t!(4, real)(endscreenx-startscreenx, endscreeny-startscreeny, endrenddist-startrenddist,
-			pow2(endrenddist-startrenddist)*zbuf_conv);
-			immutable screencoord_base=Vector_t!(4, real)(startscreenx, startscreeny, startrenddist, pow2(startrenddist)*zbuf_conv);
+			pow2(row_end_pos.length-row_start_pos.length)*zbuf_conv);
+			immutable screencoord_base=Vector_t!(4, real)(startscreenx, startscreeny, startrenddist, pow2(row_start_pos.length)*zbuf_conv);
 			immutable inv_row_end_mvy=1.0/max(row_end_mvy-row_start_mvy, 1);
 			immutable startvoxdist=Vector_t!(3, real)(vxzpos+ydiff*mvox[0].ypos).length;
 			immutable voxdistdiff=(Vector_t!(3, real)(vxzpos+ydiff*mvox[rowlen-1].ypos).length-startvoxdist)*inv_row_end_mvy;
@@ -718,21 +782,17 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					continue;
 				/*signed_register_t screenx, screeny;
 				immutable auto renddist=Dist3D_To_2DCoord(voxpos, screenx, screeny);*/
-				immutable screencoord=screencoord_base+screencoord_diff*y_posratio;
-				signed_register_t rect_start_x=cast(signed_register_t)(screencoord.x+.4);
-				signed_register_t rect_start_y=cast(signed_register_t)(screencoord.y+.4);
+				auto screencoord=screencoord_base+screencoord_diff*y_posratio;
+				auto rect_start=Vector_t!(2, signed_register_t)(screencoord.elements[0]+.4, screencoord.elements[1]+.4);
 				immutable renddist=screencoord.z;
-				if(rect_start_x>=screen_w || rect_start_y>=screen_h)
+				if(rect_start.x>=screen_w || rect_start.y>=screen_h)
 					continue;
 				immutable inv_renddist=1.0/renddist;
-				immutable rect_size=MVRectSize*inv_renddist+.5;
-				immutable rect_w=(cast(signed_register_t)(rect_size.x))+1;
-				immutable rect_h=(cast(signed_register_t)(rect_size.y))+1;
-				rect_start_x-=rect_w>>1; rect_start_y-=rect_h>>1;
-				immutable rect_end_x=min(rect_start_x+rect_w, screen_w-1);
-				immutable rect_end_y=min(rect_start_y+rect_h, screen_h-1);
-				rect_start_x=max(rect_start_x, 0); rect_start_y=max(rect_start_y, 0);
-				if(rect_end_x<=rect_start_x || rect_end_y<=rect_start_y)
+				immutable rect_size=Vector_t!(2, signed_register_t)(MVRectSize*inv_renddist+.5)+1;
+				rect_start-=rect_size>>1;
+				immutable rect_end=(rect_start+rect_size).vmin(Vector_t!(2, typeof(rect_start).__element_t)(screen_w, screen_h));
+				rect_start=rect_start.vmax(Vector_t!(2, rect_start.__element_t)(0));
+				if(rect_end.x<=rect_start.x || rect_end.y<=rect_start.y)
 					continue;
 				static if(Enable_Black_Color_Replace){
 					vxcolor=((vxcolor&0x00ffffff)!=0x00040404) ? vxcolor : spr.replace_black;
@@ -760,7 +820,9 @@ nothrow void _Render_Sprite(alias Enable_Black_Color_Replace, alias Enable_Color
 					vxcolor|=0xff000000;
 				else
 					vxcolor|=(255-spr.motion_blur)<<24;
-				Renderer_SpriteFillRect3D(rect_start_x, rect_start_y, rect_end_x, rect_end_y, vxcolor, cast(uint)screencoord.w, framebuf, pitch, screen_w, screen_h, zbufoff);
+				if((vxcolor&0x00ffffff)==0x232323) //Desperate hack because I honestly don't know how to fix the unsymmetric rifle rendering bug
+					screencoord.w-=10.0;
+				Renderer_SpriteFillRect3D(rect_start.x, rect_start.y, rect_end.x, rect_end.y, vxcolor, cast(uint)(screencoord.w+.5), framebuf, pitch, screen_w, screen_h, zbufoff);
 			}
 		}
 	}
@@ -952,7 +1014,7 @@ private struct RendererSmokeCircleQueue_t{
 private RendererSmokeCircleQueue_t[] RendererSmokeCircleQueue;
 
 
-void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, immutable in float zpos, immutable in int radius, immutable in uint color, immutable in uint alpha, immutable in float dist){
+void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, immutable in float zpos, immutable in int radius, immutable in uint color, immutable in ubyte alpha, immutable in float dist){
 	signed_register_t sx, sy;
 	if(!Project2D(xpos, ypos, zpos, sx, sy))
 		return;
@@ -993,9 +1055,10 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 				break;
 			}
 		}
-		if(__no_zbuf_needed){
+		//if(__no_zbuf_needed){
+		if(Renderer_BaseQuality>1.5){
 			RendererSmokeCircleQueue_t c;
-			c.rect=SDL_Rect(cast(int)(renderxpos-radius), cast(int)renderypos, radius*2, radius*2); c.icol=color; c.alpha=to!ubyte(alpha);
+			c.rect=SDL_Rect(cast(int)(renderxpos-radius), cast(int)renderypos, radius*2, radius*2); c.icol=color; c.alpha=alpha;
 			RendererSmokeCircleQueue~=c;
 			return;
 		}
