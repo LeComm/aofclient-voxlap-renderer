@@ -1,6 +1,6 @@
 CC = gcc
 CLANG = clang
-CFLAGS = -g -Ofast -fno-pie -no-pie
+CFLAGS = -g -Ofast
 
 voxlap5.o: voxlap5.c
 	$(CC) $(CFLAGS) -march=native -mmmx -msse -msse2 -msse3 -c voxlap5.c -I./include

@@ -84,7 +84,9 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 		else{
 			writeflnerr("Failed listing avilable SDL render drivers: %s", fromStringz(SDL_GetError()));
 		}*/
-		scrn_renderer=SDL_CreateRenderer(scrn_window, -1, (Config_Read!bool("hwaccel") ? SDL_RENDERER_ACCELERATED : SDL_RENDERER_SOFTWARE) | SDL_RENDERER_PRESENTVSYNC*Config_Read!bool("vsync"));
+		SDL_RendererFlags rend_flags=to!SDL_RendererFlags
+		((Config_Read!bool("hwaccel") ? SDL_RENDERER_ACCELERATED : SDL_RENDERER_SOFTWARE) | SDL_RENDERER_PRESENTVSYNC*Config_Read!bool("vsync"));
+		scrn_renderer=SDL_CreateRenderer(scrn_window, -1, rend_flags);
 	}
 	bool new_framebuf=!vxrend_framebuf;
 	if(vxrend_framebuf){
@@ -1178,10 +1180,7 @@ auto Renderer_DrawRoundZoomedIn(Vector3_t* scope_pos, Vector3_t* scope_rot, Menu
 		}
 		scope_surface_ptr=cast(uint*)((cast(ubyte*)scope_surface_ptr)+scope_texture_pitch);
 	}
-	if(SDL_UnlockTexture(ScopeTexture)){
-		writeflnlog("ERROR UNLOCKING TEXTURE: %s\n", fromStringz(SDL_GetError()));
-		return return_type();
-	}
+	SDL_UnlockTexture(ScopeTexture);
 	return_type ret;
 	ret.dstrect.w=scope_xsize; ret.dstrect.h=scope_ysize;
 	ret.dstrect.x=scope_2D_pos[0]; ret.dstrect.y=scope_2D_pos[1];
