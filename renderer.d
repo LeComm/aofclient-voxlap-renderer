@@ -5,7 +5,7 @@ version(LDC){
 version(GNU){
 	import gdc_stdlib;
 }
-import derelict.sdl2.sdl;
+import sdl2;
 import core.stdc.stdio : cstdio_fread=fread;
 import std.algorithm;
 import std.stdio;
