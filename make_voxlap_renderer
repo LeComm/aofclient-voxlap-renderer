@@ -1,5 +1,5 @@
 CC = gcc
-CLANG = clang
+CLANG = clang-4.0
 CFLAGS = -g -Ofast
 
 voxlap5.o: voxlap5.c

@@ -109,12 +109,15 @@ static inline int dmulshr22 (int a, int b, int c, int d)
 	return (long)(((((int64_t)a)*((int64_t)b)) + (((int64_t)c)*((int64_t)d))) >> 22);
 }
 
-
-/*No idea why this isn't just #defined as memcpy and memset*/
 static inline void copybuf (void *s, void *d, int c)
 {
-	int i;
-	for (i = 0; i < c; i++)	((int *)d)[i] = ((int *)s)[i];
+//There's some bug in GCC that makes this crash with -Ofast, hence I will just bash in memcpy
+#if defined (__GNUC__)
+	__builtin_memcpy(d, s, c<<2);
+#else
+	unsigned int i;
+	for (i = 0; i < c; i++)((int *)d)[i] = ((int *)s)[i];
+#endif
 }
 
 static inline void clearbuf (void *d, int c, int a)

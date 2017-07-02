@@ -1969,7 +1969,7 @@ void setnormflash (float px, float py, float pz, int flashradius, int intens)
 	float f, fintens;
 	int i, j, k, l, m, x, y, z, xx, yy, xi, yi, xe, ye, ipx, ipy, ipz;
 	int ceilnum, sq;
-	char *v;
+	unsigned char *v;
 
 	ipx = (int)px; ipy = (int)py; ipz = (int)pz;
 	vx5.minx = ipx-flashradius+1; vx5.maxx = ipx+flashradius;
@@ -4428,7 +4428,6 @@ void scum2line ()
 
 			//De-allocate column (x,y)  Note: Must be AFTER compilerle!
 		voxdealloc(sptr[i]);
-
 			//Allocate & copy to new column (x,y)
 		sptr[i] = v = voxalloc(j); copybuf((void *)tbuf,(void *)v,j>>2);
 

@@ -104,7 +104,7 @@ void Renderer_SetUp(uint screen_xsize, uint screen_ysize){
 	}
 	//SDL_SetRenderDrawBlendMode(scrn_renderer, SDL_BLENDMODE_BLEND);
 	vxrend_texture=SDL_CreateTexture(scrn_renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, vxrend_framebuf_w, vxrend_framebuf_h);
-	{
+	if(Config_Read!bool("smoke_circle_hwaccel")){
 		SDL_Surface *smoke_circle_srfc=__SmokeCircle_Generate(smoke_circle_tex_w, smoke_circle_tex_h);
 		smoke_circle_tex=Renderer_NewTexture(smoke_circle_tex_w, smoke_circle_tex_h);
 		Renderer_UploadToTexture(smoke_circle_srfc, smoke_circle_tex);
@@ -177,6 +177,12 @@ RendererTexture_t Renderer_TextureFromSurface(SDL_Surface *srfc){
 
 void Renderer_UploadToTexture(SDL_Surface *srfc, SDL_Texture *tex){
 	SDL_UpdateTexture(tex, null, srfc.pixels, srfc.pitch);
+}
+
+uint[2] Renderer_TextureSize(RendererTexture_t tex){
+	int w, h;
+	SDL_QueryTexture(tex, null, null, &w, &h);
+	return [cast(uint)w, cast(uint)h];
 }
 
 void Renderer_DestroyTexture(RendererTexture_t tex){
@@ -587,9 +593,8 @@ void Voxel_Remove(uint xpos, uint ypos, uint zpos){
 }
 
 alias RendererParticleSize_t=uint;
-
-RendererParticleSize_t[3] Renderer_GetParticleSize(float xsize, float ysize, float zsize){
-	return [to!uint(sqrt(xsize*xsize*.5+zsize*zsize*.5)*ScreenXSize*.25), to!uint(ysize*ScreenYSize/3.0), 0];
+RendererParticleSize_t[3] Renderer_GetParticleSize(fVector3_t size){
+	return [to!uint(sqrt(size.x*size.x*.5+size.z*size.z*.5)*ScreenXSize*.25), to!uint(size.y*ScreenYSize/3.0), 0];
 }
 
 version(DigitalMars){
@@ -662,7 +667,7 @@ void Renderer_DrawSprite(SpriteRenderData_t *sprrend, Vector3_t pos, Vector3_t r
 	spr.pos=pos; spr.rot=rotation; spr.density=sprrend.size/Vector3_t(spr.model.size);
 	spr.color_mod=sprrend.color_mod; spr.replace_black=sprrend.replace_black;
 	spr.check_visibility=sprrend.check_visibility; spr.motion_blur=to!ubyte(sprrend.motion_blur*255.0);
-	return Renderer_DrawSprite(spr);
+	Renderer_DrawSprite(spr);
 }
 
 void Renderer_DrawSprite(in Sprite_t spr){
@@ -988,12 +993,14 @@ immutable in int zbufoff=VoxlapInterface.zbufoff){
 
 //x^2+y^2=w^2+h^2
 SDL_Surface *__SmokeCircle_Generate(int w, int h){
+	immutable brightness=0xff;
+	immutable smoke_col=brightness | (brightness<<8) | (brightness<<16) | (0xf0<<24);
 	int hw=w/2, hh=h/2;
 	SDL_Surface *srfc=SDL_CreateRGBSurface(0, w, h, 32, 0, 0, 0, 0);
 	for(int x=-hw; x<hw; x++){
 		for(int y=-hh; y<hh; y++){
 			if(x*x*2+y*y*2<hw*hw+hh*hh){
-				*Pixel_Pointer(srfc, x+hw, y+hh)=0xffffffff;
+				*Pixel_Pointer(srfc, x+hw, y+hh)=smoke_col;
 			}
 			else{
 				*Pixel_Pointer(srfc, x+hw, y+hh)=0x00000000;
@@ -1057,8 +1064,7 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 				break;
 			}
 		}
-		//if(__no_zbuf_needed){
-		if(Renderer_BaseQuality>1.5){
+		if(__no_zbuf_needed){
 			RendererSmokeCircleQueue_t c;
 			c.rect=SDL_Rect(cast(int)(renderxpos-radius), cast(int)renderypos, radius*2, radius*2); c.icol=color; c.alpha=alpha;
 			RendererSmokeCircleQueue~=c;
@@ -1093,7 +1099,7 @@ void Renderer_DrawSmokeCircle(immutable in float xpos, immutable in float ypos, 
 		auto pptr=&pty[-lwidth];
 		while(x){
 			while(zptr[x]>=sqdist && x){
-				zptr[x]=sqdist;
+				//zptr[x]=sqdist;
 				pptr[x]=0xff000000 | ((((pptr[x]&0x00ff00ff)*neg_alpha+color_ccomp1)>>>8)&0x00ff00ff)
 				| ((((pptr[x]&0x0000ff00)*neg_alpha+color_ccomp2)>>>8)&0x0000ff00);
 				--x;
@@ -1245,7 +1251,7 @@ void Renderer_AddFlash(Vector3_t pos, float radius, float brightness){
 	flash.centre=pos;
 	flash.radius=radius;
 	flash.timer=1.0;
-	flash.decay=1.0/(radius*radius);
+	flash.decay=.3/(pow(radius, .1)+1.0);
 }
 
 void Renderer_UpdateFlashes(alias UpdateGfx=true)(float update_speed){
