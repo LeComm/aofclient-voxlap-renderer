@@ -1,3 +1,5 @@
+# NOTE: This repository is only here for archive purposes and is outdated. My latest code is on https://git.monoxane.com/lecom
+
 This software is based on:
 https://github.com/Ericson2314/Voxlap
 
